@@ -1,0 +1,119 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from passlib.context import CryptContext
+from jose import jwt
+from datetime import datetime, timedelta
+import os
+from dotenv import load_dotenv
+
+from ..database import get_db
+from ..models import User
+from ..schemas import UserCreate, UserLogin, UserResponse, Token
+
+load_dotenv()
+
+# Используем bcrypt с явной настройкой
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+
+router = APIRouter()
+SECRET_KEY = os.getenv("SECRET_KEY", "your-super-secret-key-2026")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 10080
+
+def get_password_hash(password):
+    # Обрезаем пароль до 72 символов для bcrypt
+    if len(password) > 72:
+        password = password[:72]
+    return pwd_context.hash(password)
+
+def verify_password(plain_password, hashed_password):
+    if len(plain_password) > 72:
+        plain_password = plain_password[:72]
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+@router.post("/register", response_model=Token)
+async def register(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    hashed_password = get_password_hash(user.password)
+    db_user = User(
+        name=user.name,
+        email=user.email,
+        password=hashed_password,
+        registered=datetime.now().strftime("%d.%m.%Y")
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    
+    token = create_access_token({"sub": str(db_user.id)})
+    
+    return Token(
+        access_token=token,
+        token_type="bearer",
+        user=UserResponse(
+            id=db_user.id,
+            name=db_user.name,
+            email=db_user.email,
+            role=db_user.role,
+            registered=db_user.registered,
+            languages=db_user.languages or [],
+            topics_count=db_user.topics_count or 0,
+            progress=db_user.progress or 0,
+            is_online=db_user.is_online
+        )
+    )
+
+@router.post("/login", response_model=Token)
+async def login(user: UserLogin, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if not db_user or not verify_password(user.password, db_user.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    token = create_access_token({"sub": str(db_user.id)})
+    
+    return Token(
+        access_token=token,
+        token_type="bearer",
+        user=UserResponse(
+            id=db_user.id,
+            name=db_user.name,
+            email=db_user.email,
+            role=db_user.role,
+            registered=db_user.registered,
+            languages=db_user.languages or [],
+            topics_count=db_user.topics_count or 0,
+            progress=db_user.progress or 0,
+            is_online=db_user.is_online
+        )
+    )
+
+@router.get("/me", response_model=UserResponse)
+async def get_current_user(token: str, db: Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload.get("sub"))
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        return UserResponse(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            role=user.role,
+            registered=user.registered,
+            languages=user.languages or [],
+            topics_count=user.topics_count or 0,
+            progress=user.progress or 0,
+            is_online=user.is_online
+        )
+    except:
+        raise HTTPException(status_code=401, detail="Invalid token")
