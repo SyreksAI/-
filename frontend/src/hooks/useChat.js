@@ -98,19 +98,16 @@ export function useChat(user, selectedChat, setMessages) {
   const sendTyping = useCallback(() => {
     if (!user || !isConnected) return;
     
-    // Очищаем предыдущий таймаут
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
     
-    // Отправляем статус
     const messageData = {
       type: 'typing',
       chat_id: selectedChat
     };
     websocketService.sendMessage(messageData);
     
-    // Блокируем повторную отправку на 3 секунды
     typingTimeoutRef.current = setTimeout(() => {
       typingTimeoutRef.current = null;
     }, 3000);

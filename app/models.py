@@ -54,7 +54,13 @@ class Message(Base):
     is_system = Column(Boolean, default=False)
     read = Column(Boolean, default=False)
     timestamp = Column(DateTime, server_default=func.now())
-    files = Column(JSON, default=[])  # ✅ ДОБАВИТЬ ЭТУ СТРОКУ
+    files = Column(JSON, default=[])
+    
+    # ✅ ПОЛЕ ДЛЯ ОТВЕТА
+    reply_to_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+    
+    # ✅ СВЯЗЬ С РОДИТЕЛЬСКИМ СООБЩЕНИЕМ
+    reply_to = relationship("Message", remote_side=[id], foreign_keys=[reply_to_id])
     
     sender = relationship("User", foreign_keys=[user_id], back_populates="messages_sent")
     recipient = relationship("User", foreign_keys=[recipient_id], back_populates="messages_received")

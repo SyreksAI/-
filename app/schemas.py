@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from datetime import datetime
 
 # ===== USER SCHEMAS =====
@@ -29,7 +29,6 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 class UserUpdate(BaseModel):
-    """Схема для обновления профиля пользователя"""
     name: Optional[str] = Field(None, min_length=2, max_length=100)
     username: Optional[str] = Field(None, min_length=3, max_length=30, pattern="^[a-zA-Z0-9_]+$")
     email: Optional[EmailStr] = None
@@ -67,6 +66,8 @@ class MessageCreate(BaseModel):
     text: str
     chat_id: str = "general"
     recipient_id: Optional[int] = None
+    files: List[Dict[str, Any]] = []
+    reply_to: Optional[Dict[str, Any]] = None  # ✅ ДОБАВЛЕНО
 
 class MessageResponse(BaseModel):
     id: int
@@ -81,6 +82,8 @@ class MessageResponse(BaseModel):
     is_system: bool
     read: bool
     timestamp: datetime
+    files: List[Dict[str, Any]] = []
+    reply_to: Optional[Dict[str, Any]] = None  # ✅ ДОБАВЛЕНО
 
     class Config:
         from_attributes = True

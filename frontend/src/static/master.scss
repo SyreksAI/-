@@ -8864,16 +8864,17 @@ body {
   transition: all 0.2s ease;
 }
 
+/* ===== БАЗОВЫЙ СТИЛЬ — КНОПКИ СПРАВА (для чужих) ===== */
 .message-hover-actions {
   position: absolute;
-  bottom: 10px;
-  left: -75px;
+  bottom: 6px;
+  right: -67px;
   display: flex;
   align-items: center;
   gap: 3px;
   opacity: 0;
   visibility: hidden;
-  transform: translateX(-4px);
+  transform: translateX(4px);
   transition: all 0.2s ease;
   z-index: 10;
 }
@@ -8884,9 +8885,20 @@ body {
   transform: translateX(0);
 }
 
+/* ===== ДЛЯ СВОИХ — КНОПКИ СЛЕВА ===== */
+.message-hover-actions.own {
+  right: auto;
+  left: -67px;
+  transform: translateX(-4px);
+}
+
+.chat-message.own:hover .message-hover-actions.own {
+  transform: translateX(0);
+}
+
 .message-hover-btn {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border: none;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.95);
@@ -8919,7 +8931,45 @@ body {
   box-shadow: 0 2px 12px rgba(124, 58, 237, 0.15);
 }
 
-/* ===== СВЕТЛОЕ КОНТЕКСТНОЕ МЕНЮ ДЛЯ СООБЩЕНИЯ ===== */
+/* ===== АДАПТИВ ===== */
+@media (max-width: 768px) {
+  .message-hover-actions {
+    bottom: 8px;
+    right: -28px;
+  }
+  
+  .message-hover-actions.own {
+    right: auto;
+    left: -28px;
+  }
+  
+  .message-hover-btn {
+    width: 20px;
+    height: 20px;
+    font-size: 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .message-hover-actions {
+    bottom: 6px;
+    right: -24px;
+  }
+  
+  .message-hover-actions.own {
+    right: auto;
+    left: -24px;
+  }
+  
+  .message-hover-btn {
+    width: 18px;
+    height: 18px;
+    font-size: 0.45rem;
+  }
+}
+
+
+/* ===== СВЕТЛОЕ КОНТЕКСТНОЕ МЕНЮ ===== */
 .message-context-menu {
   background: #ffffff !important;
   border-radius: 12px;
@@ -8971,115 +9021,905 @@ body {
   margin: 4px 12px;
 }
 
-/* ===== АДАПТИВ ===== */
+
+/* Иконки в контекстном меню */
+.message-context-menu-item i {
+  font-size: 0.9rem;
+  color: #64748b !important;
+  width: 18px;
+  text-align: center;
+}
+
+.message-context-menu-item .fa-reply {
+  color: #3b82f6 !important;
+}
+
+.message-context-menu-item .fa-pen {
+  color: #f59e0b !important;
+}
+
+.message-context-menu-item-danger .fa-trash {
+  color: #ef4444 !important;
+}
+
+/* ======================================== */
+/* ===== РЕДАКТИРОВАНИЕ СООБЩЕНИЯ ===== */
+/* ======================================== */
+
+.edit-message-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(124, 58, 237, 0.08);
+  border-left: 3px solid #7c3aed;
+  border-radius: 8px 8px 0 0;
+  margin: 0 0 4px 0;
+  animation: slideDown 0.25s ease;
+  flex-shrink: 0;
+}
+
+.edit-message-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.edit-message-info i {
+  color: #7c3aed;
+  font-size: 0.9rem;
+}
+
+.edit-message-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #7c3aed;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.edit-message-text {
+  font-size: 0.9rem;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+.edit-message-cancel {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.edit-message-cancel:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+/* Анимация появления */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 60px;
+  }
+}
+
+/* Адаптив */
 @media (max-width: 768px) {
-  .message-hover-actions {
-    bottom: 8px;
-    left: -28px;
+  .edit-message-bar {
+    padding: 8px 12px;
   }
   
-  .message-hover-btn {
-    width: 20px;
-    height: 20px;
-    font-size: 0.5rem;
+  .edit-message-label {
+    font-size: 0.65rem;
+  }
+  
+  .edit-message-text {
+    font-size: 0.8rem;
   }
 }
 
 @media (max-width: 480px) {
-  .message-hover-actions {
-    bottom: 6px;
-    left: -24px;
+  .edit-message-bar {
+    padding: 6px 10px;
+    border-left-width: 2px;
   }
   
-  .message-hover-btn {
-    width: 18px;
-    height: 18px;
-    font-size: 0.45rem;
+  .edit-message-info {
+    gap: 6px;
+  }
+  
+  .edit-message-label {
+    font-size: 0.55rem;
+  }
+  
+  .edit-message-text {
+    font-size: 0.75rem;
   }
 }
 
-@keyframes contextFadeIn {
+
+
+
+/* ======================================== */
+/* ===== РЕДАКТИРОВАНИЕ СООБЩЕНИЯ ===== */
+/* ======================================== */
+
+.edit-message-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(124, 58, 237, 0.08);
+  border-left: 3px solid #7c3aed;
+  border-radius: 8px 8px 0 0;
+  margin: 0 0 4px 0;
+  animation: slideDown 0.25s ease;
+  flex-shrink: 0;
+}
+
+.edit-message-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.edit-message-info i {
+  color: #7c3aed;
+  font-size: 0.9rem;
+}
+
+.edit-message-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #7c3aed;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.edit-message-text {
+  font-size: 0.9rem;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+.edit-message-cancel {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.edit-message-cancel:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+@keyframes slideDown {
   from {
     opacity: 0;
-    transform: scale(0.95) translateY(-5px);
+    transform: translateY(-10px);
+    max-height: 0;
   }
   to {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: translateY(0);
+    max-height: 60px;
+  }
+}
+
+/* ======================================== */
+/* ===== МОДАЛЬНОЕ ОКНО ПОДЕЛИТЬСЯ ===== */
+/* ======================================== */
+
+.share-modal .modal-body {
+  padding: 16px 20px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.share-modal .modal-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.share-modal .modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.share-modal .modal-body::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+/* Превью сообщения */
+.share-message-preview {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border: 1px solid #e2e8f0;
+}
+
+.share-message-sender {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #7c3aed;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.share-message-sender i {
+  font-size: 0.9rem;
+}
+
+.share-message-text {
+  font-size: 0.9rem;
+  color: #1a1a2e;
+  word-break: break-word;
+}
+
+.share-message-files {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+.share-message-files i {
+  font-size: 0.7rem;
+}
+
+/* Поиск */
+.share-search {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.share-search i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.share-search input {
+  width: 100%;
+  padding: 10px 12px 10px 36px;
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  color: #1a1a2e;
+  outline: none;
+  transition: 0.3s;
+}
+
+.share-search input:focus {
+  border-color: #7c3aed;
+  background: #ffffff;
+  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.08);
+}
+
+/* Список контактов */
+.share-contact-list {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.share-contact-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.share-contact-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.share-contact-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+.share-contact-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+}
+
+.share-contact-item:hover {
+  background: #f8fafc;
+}
+
+.share-contact-item.selected {
+  background: #ede9fe;
+  border-color: #7c3aed;
+}
+
+.share-contact-item.selected .share-contact-name {
+  color: #7c3aed;
+}
+
+.share-contact-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.share-contact-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7c3aed;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.share-contact-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.share-contact-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #1a1a2e;
+  transition: color 0.2s;
+}
+
+.share-contact-username {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.share-contact-status {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.share-checkbox {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 2px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  background: #ffffff;
+}
+
+.share-checkbox.checked {
+  background: #7c3aed;
+  border-color: #7c3aed;
+}
+
+.share-checkbox.checked i {
+  color: white;
+  font-size: 0.7rem;
+}
+
+.share-selected-count {
+  font-size: 0.85rem;
+  color: #64748b;
+  padding: 8px 0 4px 0;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 8px;
+}
+
+.share-empty {
+  text-align: center;
+  padding: 20px;
+  color: #94a3b8;
+}
+
+.share-empty p {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+/* ======================================== */
+/* ===== АДАПТИВ ===== */
+/* ======================================== */
+
+@media (max-width: 768px) {
+  .edit-message-bar {
+    padding: 8px 12px;
+  }
+  
+  .edit-message-label {
+    font-size: 0.65rem;
+  }
+  
+  .edit-message-text {
+    font-size: 0.8rem;
+  }
+  
+  .share-modal .modal-content {
+    max-width: 95%;
+    margin: 10px;
+  }
+  
+  .share-modal .modal-body {
+    padding: 12px 16px;
+    max-height: 350px;
+  }
+  
+  .share-contact-item {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  
+  .share-contact-status {
+    margin-right: 4px;
+  }
+}
+
+@media (max-width: 480px) {
+  .edit-message-bar {
+    padding: 6px 10px;
+    border-left-width: 2px;
+  }
+  
+  .edit-message-info {
+    gap: 6px;
+  }
+  
+  .edit-message-label {
+    font-size: 0.55rem;
+  }
+  
+  .edit-message-text {
+    font-size: 0.75rem;
+  }
+  
+  .share-modal .modal-content {
+    max-width: 98%;
+    margin: 8px;
+  }
+  
+  .share-modal .modal-body {
+    padding: 10px 14px;
+    max-height: 300px;
+  }
+  
+  .share-contact-item {
+    padding: 8px 10px;
+  }
+  
+  .share-contact-avatar {
+    width: 30px;
+    height: 30px;
+    font-size: 0.85rem;
+  }
+  
+  .share-contact-name {
+    font-size: 0.8rem;
+  }
+  
+  .share-contact-username {
+    font-size: 0.65rem;
+  }
+  
+  .share-message-preview {
+    padding: 10px 12px;
+  }
+  
+  .share-message-text {
+    font-size: 0.8rem;
+  }
+  
+  .share-checkbox {
+    width: 18px;
+    height: 18px;
+  }
+  
+  .share-checkbox.checked i {
+    font-size: 0.6rem;
+  }
+  
+  .share-search input {
+    font-size: 0.85rem;
+    padding: 8px 10px 8px 32px;
+  }
+  
+  .share-search i {
+    font-size: 0.8rem;
+    left: 10px;
   }
 }
 
 
 
+
+
+
+/* ======================================== */
 /* ===== РЕДАКТИРОВАНИЕ СООБЩЕНИЯ ===== */
-.message-edit-form {
+/* ======================================== */
+
+.edit-message-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(124, 58, 237, 0.08);
+  border-left: 3px solid #7c3aed;
+  border-radius: 8px 8px 0 0;
+  margin: 0 0 4px 0;
+  animation: slideDown 0.25s ease;
+  flex-shrink: 0;
 }
 
-.message-edit-input {
+.edit-message-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex: 1;
-  padding: 6px 12px;
-  border: 2px solid #7c3aed;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  outline: none;
-  background: #f8fafc;
+  min-width: 0;
 }
 
-.message-edit-input:focus {
-  border-color: #7c3aed;
-  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+.edit-message-info i {
+  color: #7c3aed;
+  font-size: 0.9rem;
 }
 
-.message-edit-save {
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 50%;
-  background: #7c3aed;
-  color: white;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.edit-message-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #7c3aed;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
 }
 
-.message-edit-save:hover {
-  background: #6d28d9;
-  transform: scale(1.05);
-}
-
-.message-edit-cancel {
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 50%;
-  background: #f1f5f9;
+.edit-message-text {
+  font-size: 0.9rem;
   color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+.edit-message-cancel {
+  background: none;
+  border: none;
+  color: #94a3b8;
   cursor: pointer;
-  transition: all 0.2s;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.edit-message-cancel:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+/* ======================================== */
+/* ===== ОТВЕТ НА СООБЩЕНИЕ ===== */
+/* ======================================== */
+
+.reply-message-bar {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(59, 130, 246, 0.08);
+  border-left: 3px solid #3b82f6;
+  border-radius: 8px 8px 0 0;
+  margin: 0 0 4px 0;
+  animation: slideDown 0.25s ease;
+  flex-shrink: 0;
 }
 
-.message-edit-cancel:hover {
-  background: #e2e8f0;
+.reply-message-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
 }
 
-.message-edited-label {
-  font-size: 0.7rem;
+.reply-message-info i {
+  color: #3b82f6;
+  font-size: 0.9rem;
+}
+
+.reply-message-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #3b82f6;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.reply-message-sender {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #3b82f6;
+  flex-shrink: 0;
+}
+
+.reply-message-text {
+  font-size: 0.85rem;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+.reply-message-cancel {
+  background: none;
+  border: none;
   color: #94a3b8;
-  margin-left: 4px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  font-size: 1rem;
 }
 
-/* ===== КНОПКА ОТВЕТИТЬ ===== */
-.message-reply-btn:hover {
-  color: #8b5cf6;
-  border-color: rgba(139, 92, 246, 0.2);
-  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.15);
+.reply-message-cancel:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 60px;
+  }
+}
+
+/* ======================================== */
+/* ===== ЦИТАТА В СООБЩЕНИЯХ ===== */
+/* ======================================== */
+
+/* ===== ОБЩИЙ СТИЛЬ ===== */
+.message-reply-quote {
+  border-radius: 6px;
+  padding: 6px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.message-reply-quote:hover {
+  transform: translateX(2px);
+}
+
+.message-reply-quote:active {
+  transform: scale(0.99);
+}
+
+/* Индикатор кликабельности */
+.message-reply-quote::after {
+  content: '↗';
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.message-reply-quote:hover::after {
+  opacity: 0.6;
+}
+
+.reply-quote-sender {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.reply-quote-sender i {
+  font-size: 0.6rem;
+}
+
+.reply-quote-text {
+  font-size: 0.8rem;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ===== ЧУЖИЕ СООБЩЕНИЯ (голубой) ===== */
+.chat-message:not(.own) .message-reply-quote {
+  background: rgba(59, 130, 246, 0.08);
+  border-left: 3px solid #3b82f6;
+  border-right: 1px solid rgba(59, 130, 246, 0.06);
+}
+
+.chat-message:not(.own) .reply-quote-sender {
+  color: #3b82f6;
+}
+
+.chat-message:not(.own) .reply-quote-text {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.chat-message:not(.own) .message-reply-quote:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+/* ===== СВОИ СООБЩЕНИЯ (фиолетовый) ===== */
+.chat-message.own .message-reply-quote {
+  background: rgba(124, 58, 237, 0.08);
+  border-left: 3px solid #a78bfa;
+  border-right: 1px solid rgba(124, 58, 237, 0.06);
+}
+
+.chat-message.own .reply-quote-sender {
+  color: #a78bfa;
+}
+
+.chat-message.own .reply-quote-text {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.chat-message.own .message-reply-quote:hover {
+  background: rgba(124, 58, 237, 0.15);
+}
+
+/* ===== РАЗДЕЛИТЕЛЬ МЕЖДУ ЦИТАТОЙ И ТЕКСТОМ ===== */
+.message-reply-quote + .message-text-content {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.chat-message.own .message-reply-quote + .message-text-content {
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ======================================== */
+/* ===== ПОДСВЕТКА СООБЩЕНИЯ ПРИ ПЕРЕХОДЕ ===== */
+/* ======================================== */
+
+.chat-message.highlighted {
+  animation: highlightFade 3s ease forwards;
+  border-radius: 8px;
+}
+
+@keyframes highlightFade {
+  0% {
+    background: rgba(124, 58, 237, 0.2);
+    box-shadow: 0 0 20px rgba(124, 58, 237, 0.1);
+    padding: 4px 0;
+  }
+  15% {
+    background: rgba(124, 58, 237, 0.3);
+    box-shadow: 0 0 30px rgba(124, 58, 237, 0.15);
+    padding: 4px 0;
+  }
+  40% {
+    background: rgba(124, 58, 237, 0.15);
+    box-shadow: 0 0 15px rgba(124, 58, 237, 0.05);
+    padding: 4px 0;
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+  }
+}
+
+/* Для своих сообщений */
+.chat-message.own.highlighted {
+  animation: highlightFadeOwn 3s ease forwards;
+  border-radius: 8px;
+}
+
+@keyframes highlightFadeOwn {
+  0% {
+    background: rgba(124, 58, 237, 0.25);
+    box-shadow: 0 0 25px rgba(124, 58, 237, 0.15);
+    padding: 4px 0;
+  }
+  15% {
+    background: rgba(124, 58, 237, 0.4);
+    box-shadow: 0 0 35px rgba(124, 58, 237, 0.2);
+    padding: 4px 0;
+  }
+  40% {
+    background: rgba(124, 58, 237, 0.2);
+    box-shadow: 0 0 15px rgba(124, 58, 237, 0.05);
+    padding: 4px 0;
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+  }
+}
+
+/* ======================================== */
+/* ===== АДАПТИВ ===== */
+/* ======================================== */
+
+@media (max-width: 480px) {
+  .message-reply-quote {
+    padding: 4px 10px;
+  }
+  
+  .reply-quote-text {
+    font-size: 0.7rem;
+    -webkit-line-clamp: 1;
+  }
+  
+  .message-reply-quote::after {
+    display: none;
+  }
 }

@@ -76,6 +76,16 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int):
         
         for msg in reversed(last_messages):
             sender = db.query(User).filter(User.id == msg.user_id).first()
+            reply_to_data = None
+            if msg.reply_to:
+                reply_sender = db.query(User).filter(User.id == msg.reply_to.user_id).first()
+                reply_to_data = {
+                    "message_id": msg.reply_to.id,
+                    "text": msg.reply_to.text,
+                    "username": reply_sender.username if reply_sender else "unknown",
+                    "user_id": msg.reply_to.user_id
+                }
+            
             await websocket.send_text(json.dumps({
                 "type": "history",
                 "message": {
@@ -89,7 +99,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int):
                     "is_system": msg.is_system,
                     "read": msg.read,
                     "timestamp": msg.timestamp.isoformat(),
-                    "files": msg.files or []  # ✅ ДОБАВИТЬ
+                    "files": msg.files or [],
+                    "reply_to": reply_to_data  # ✅ ДОБАВЛЕНО
                 }
             }, default=str))
         
@@ -102,7 +113,15 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int):
                 chat_id = message_data.get("chat_id", "general")
                 recipient_id = message_data.get("recipient_id")
                 is_system = message_data.get("is_system", False)
-                files = message_data.get("files", [])  # ✅ ДОБАВИТЬ
+                files = message_data.get("files", [])
+                
+                # ✅ ОБРАБОТКА reply_to
+                reply_to = None
+                reply_to_data = message_data.get("reply_to")
+                if reply_to_data:
+                    reply_to_id = reply_to_data.get("message_id")
+                    if reply_to_id:
+                        reply_to = db.query(Message).filter(Message.id == reply_to_id).first()
                 
                 if recipient_id and str(chat_id).startswith("private_"):
                     if not can_send_private_message(user_id, recipient_id, db):
@@ -119,13 +138,25 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int):
                     recipient_id=recipient_id,
                     is_admin=message_data.get("is_admin", False),
                     is_system=is_system,
-                    files=files  # ✅ ДОБАВИТЬ
+                    files=files,
+                    reply_to_id=reply_to.id if reply_to else None  # ✅ ДОБАВЛЕНО
                 )
                 db.add(new_message)
                 db.commit()
                 db.refresh(new_message)
                 
                 sender = db.query(User).filter(User.id == new_message.user_id).first()
+                
+                # ✅ ФОРМИРУЕМ reply_to ДЛЯ ОТВЕТА
+                reply_to_response = None
+                if new_message.reply_to:
+                    reply_sender = db.query(User).filter(User.id == new_message.reply_to.user_id).first()
+                    reply_to_response = {
+                        "message_id": new_message.reply_to.id,
+                        "text": new_message.reply_to.text,
+                        "username": reply_sender.username if reply_sender else "unknown",
+                        "user_id": new_message.reply_to.user_id
+                    }
                 
                 response = {
                     "type": "new_message",
@@ -141,7 +172,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int):
                         "is_system": new_message.is_system,
                         "read": new_message.read,
                         "timestamp": new_message.timestamp.isoformat(),
-                        "files": new_message.files or []  # ✅ ДОБАВИТЬ
+                        "files": new_message.files or [],
+                        "reply_to": reply_to_response  # ✅ ДОБАВЛЕНО
                     }
                 }
                 

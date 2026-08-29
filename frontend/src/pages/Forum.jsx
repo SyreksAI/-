@@ -54,6 +54,19 @@ function Forum() {
   const [newChatName, setNewChatName] = useState('');
   const [actionMenuPos, setActionMenuPos] = useState(null);
   
+  // ===== РЕДАКТИРОВАНИЕ =====
+  const [editingMessage, setEditingMessage] = useState(null);
+  
+  // ===== ПОДЕЛИТЬСЯ =====
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareMessage, setShareMessage] = useState(null);
+  const [selectedContacts, setSelectedContacts] = useState([]);
+  const [shareSearchQuery, setShareSearchQuery] = useState('');
+  
+  // ===== ОТВЕТ НА СООБЩЕНИЕ =====
+  const [replyToMessage, setReplyToMessage] = useState(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
+  
   // ===== УВЕДОМЛЕНИЯ =====
   const [notifications, setNotifications] = useState([]);
   const [showBrowserPermission, setShowBrowserPermission] = useState(false);
@@ -78,7 +91,6 @@ function Forum() {
     clearFiles
   } = useFiles(user, selectedChat);
 
-  // ТОЛЬКО ОДИН РАЗ!
   const {
     isConnected,
     setIsConnected,
@@ -93,8 +105,6 @@ function Forum() {
     handleNewMessage,
     messagesEndRef
   } = useChat(user, selectedChat, setMessages);
-
-  
 
   // ===== УВЕДОМЛЕНИЯ =====
   const addNotification = useCallback((message, type = 'info', duration = 5000) => {
@@ -367,7 +377,8 @@ function Forum() {
           text: rawMsg.text,
           isSystem: rawMsg.is_system || rawMsg.isSystem || false,
           timestamp: rawMsg.timestamp,
-          files: rawMsg.files || []
+          files: rawMsg.files || [],
+          reply_to: rawMsg.reply_to || null
         };
         setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
 
@@ -436,7 +447,7 @@ function Forum() {
     } catch (error) {
       console.error('❌ Ошибка подписки на WebSocket сообщения:', error);
     }
-  }, [selectedChat, user]); // ← ТОЛЬКО selectedChat И user!
+  }, [selectedChat, user]);
 
   // ===== ПОИСК =====
   useEffect(() => {
@@ -515,12 +526,162 @@ function Forum() {
     });
   }, []);
 
-  const handleShareMessage = useCallback((msg) => {
-    addNotification('📤 Сообщение переслано (в разработке)', 'info', 3000);
-  }, [addNotification]);
-
+  // ===== ЗАКРЫТИЕ КОНТЕКСТНОГО МЕНЮ =====
   const closeMessageContextMenu = useCallback(() => {
     setMessageContextMenu(null);
+  }, []);
+
+  // ===== ПЕРЕСЛАТЬ/ПОДЕЛИТЬСЯ =====
+  const openShareModal = useCallback((msg) => {
+    setShareMessage(msg);
+    setSelectedContacts([]);
+    setShareSearchQuery('');
+    setShareModalOpen(true);
+    closeMessageContextMenu();
+  }, [closeMessageContextMenu]);
+
+  const toggleContactForShare = useCallback((contactId) => {
+    setSelectedContacts(prev => 
+      prev.includes(contactId) 
+        ? prev.filter(id => id !== contactId)
+        : [...prev, contactId]
+    );
+  }, []);
+
+  const handleShareToContacts = useCallback(() => {
+    if (!shareMessage || selectedContacts.length === 0) {
+      addNotification('⚠️ Выберите хотя бы один контакт', 'warning', 2000);
+      return;
+    }
+    
+    selectedContacts.forEach(contactId => {
+      const chatId = `private_${Math.min(user.id, contactId)}_${Math.max(user.id, contactId)}`;
+      
+      const shareData = {
+        type: 'message',
+        text: shareMessage.text || '',
+        chat_id: chatId,
+        files: shareMessage.files || [],
+        is_shared: true,
+        original_sender: shareMessage.username || user.name
+      };
+      
+      websocketService.sendMessage(shareData);
+    });
+    
+    addNotification(`📤 Сообщение отправлено ${selectedContacts.length} получателям`, 'success', 3000);
+    setShareModalOpen(false);
+    setShareMessage(null);
+    setSelectedContacts([]);
+  }, [shareMessage, selectedContacts, user, addNotification]);
+
+  // ===== КОПИРОВАТЬ ТЕКСТ =====
+  const handleCopyMessage = useCallback((msg) => {
+    if (msg.text) {
+      navigator.clipboard?.writeText(msg.text).then(() => {
+        addNotification('📋 Текст скопирован', 'success', 2000);
+      }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = msg.text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        addNotification('📋 Текст скопирован', 'success', 2000);
+      });
+    }
+    closeMessageContextMenu();
+  }, [addNotification, closeMessageContextMenu]);
+
+  // ===== НАЧАТЬ РЕДАКТИРОВАНИЕ =====
+  const handleEditMessage = useCallback((msg) => {
+    if (msg.userId !== user?.id) return;
+    
+    setEditingMessage({
+      id: msg.id,
+      text: msg.text || '',
+      chatId: msg.chatId || selectedChat
+    });
+    setNewMessage(msg.text || '');
+    inputRef.current?.focus();
+    closeMessageContextMenu();
+  }, [user, selectedChat, closeMessageContextMenu]);
+
+  // ===== ОТМЕНА РЕДАКТИРОВАНИЯ =====
+  const cancelEdit = useCallback(() => {
+    setEditingMessage(null);
+    setNewMessage('');
+    inputRef.current?.focus();
+  }, []);
+
+  // ===== ОТПРАВИТЬ РЕДАКТИРОВАНИЕ =====
+  const submitEdit = useCallback(() => {
+    if (!editingMessage) return;
+    
+    const newText = newMessage.trim();
+    if (!newText || newText === editingMessage.text) {
+      cancelEdit();
+      return;
+    }
+    
+    const editData = {
+      type: 'edit_message',
+      message_id: editingMessage.id,
+      chat_id: editingMessage.chatId || selectedChat,
+      text: newText
+    };
+    
+    if (websocketService.sendMessage(editData)) {
+      setMessages(prev => prev.map(m => 
+        m.id === editingMessage.id 
+          ? { ...m, text: newText, edited: true }
+          : m
+      ));
+      addNotification('✅ Сообщение отредактировано', 'success', 2000);
+    } else {
+      addNotification('❌ Ошибка редактирования', 'error', 3000);
+    }
+    cancelEdit();
+  }, [editingMessage, newMessage, selectedChat, addNotification, cancelEdit]);
+
+  // ===== УДАЛИТЬ СООБЩЕНИЕ =====
+  const handleDeleteMessage = useCallback((msg) => {
+    if (!msg.id) return;
+    if (!window.confirm('Вы уверены, что хотите удалить это сообщение?')) return;
+    
+    const deleteData = {
+      type: 'delete_message',
+      message_id: msg.id,
+      chat_id: msg.chatId || selectedChat
+    };
+    
+    if (websocketService.sendMessage(deleteData)) {
+      setMessages(prev => prev.filter(m => m.id !== msg.id));
+      addNotification('🗑️ Сообщение удалено', 'info', 2000);
+    } else {
+      addNotification('❌ Ошибка удаления', 'error', 3000);
+    }
+    closeMessageContextMenu();
+  }, [selectedChat, addNotification, closeMessageContextMenu]);
+
+  // ===== ОТВЕТИТЬ НА СООБЩЕНИЕ =====
+  const handleReplyMessage = useCallback((msg) => {
+    if (!msg.id) return;
+    
+    setReplyToMessage({
+      id: msg.id,
+      text: msg.text || 'сообщение',
+      username: msg.username || msg.name || 'Пользователь',
+      userId: msg.userId
+    });
+    inputRef.current?.focus();
+    closeMessageContextMenu();
+    addNotification('💬 Ответ на сообщение', 'info', 2000);
+  }, [addNotification, closeMessageContextMenu]);
+
+  // ===== ОТМЕНА ОТВЕТА =====
+  const cancelReply = useCallback(() => {
+    setReplyToMessage(null);
   }, []);
 
   // ===== ОБРАБОТЧИКИ ФАЙЛОВ =====
@@ -594,7 +755,11 @@ function Forum() {
       return;
     }
     
-    // Если есть файлы
+    if (editingMessage) {
+      submitEdit();
+      return;
+    }
+    
     if (selectedFiles.length > 0) {
       const uploadedFiles = await uploadFiles(selectedFiles);
       
@@ -614,21 +779,39 @@ function Forum() {
         }))
       };
       
+      if (replyToMessage) {
+        messageData.reply_to = {
+          message_id: replyToMessage.id,
+          text: replyToMessage.text,
+          username: replyToMessage.username,
+          user_id: replyToMessage.userId
+        };
+      }
+      
       if (websocketService.sendMessage(messageData)) {
         setNewMessage('');
         clearFiles();
+        setReplyToMessage(null);
         setUnreadCounts(prev => ({ ...prev, [selectedChat]: 0 }));
         addNotification(`📤 ${uploadedFiles.length} файлов отправлено`, 'success', 3000);
       }
       return;
     }
     
-    // Только текст
     const messageData = {
       type: 'message',
       text: newMessage.trim(),
       chat_id: selectedChat
     };
+    
+    if (replyToMessage) {
+      messageData.reply_to = {
+        message_id: replyToMessage.id,
+        text: replyToMessage.text,
+        username: replyToMessage.username,
+        user_id: replyToMessage.userId
+      };
+    }
     
     if (currentChat?.type === 'private') {
       messageData.recipient_id = targetUserId;
@@ -636,11 +819,12 @@ function Forum() {
     
     if (websocketService.sendMessage(messageData)) {
       setNewMessage('');
+      setReplyToMessage(null);
       setUnreadCounts(prev => ({ ...prev, [selectedChat]: 0 }));
     } else {
       addNotification('❌ Ошибка отправки', 'error', 3000);
     }
-  }, [user, isConnected, newMessage, selectedFiles, selectedChat, currentChat, targetUserId, uploadFiles, clearFiles, addNotification]);
+  }, [user, isConnected, newMessage, selectedFiles, selectedChat, currentChat, targetUserId, uploadFiles, clearFiles, addNotification, editingMessage, submitEdit, replyToMessage]);
 
   // ===== КОНТЕКСТНОЕ МЕНЮ ДЛЯ ЧАТА =====
   const handleContextMenu = useCallback((e, chat) => {
@@ -945,17 +1129,23 @@ function Forum() {
         <React.Fragment key={msg.id || index}>
           {showDate && <div className="chat-date-divider"><span>{msgDate}</span></div>}
           
-          <div className={`chat-message ${isOwn ? 'own' : ''} ${isSystem ? 'system' : ''}`}>
+          <div 
+            className={`chat-message ${isOwn ? 'own' : ''} ${isSystem ? 'system' : ''} ${highlightedMessageId === msg.id ? 'highlighted' : ''}`}
+            data-message-id={msg.id}
+          >
             {!isOwn && !isSystem && <div className="chat-message-avatar"><i className="fas fa-user-circle"></i></div>}
             <div className="chat-message-content">
               <div className="chat-message-bubble" style={{ position: 'relative' }}>
                 
                 {/* Кнопки при наведении */}
                 {!isSystem && (
-                  <div className="message-hover-actions">
+                  <div className={`message-hover-actions ${isOwn ? 'own' : ''}`}>
                     <button 
                       className="message-hover-btn message-share-btn"
-                      onClick={(e) => { e.stopPropagation(); handleShareMessage(msg); }}
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        openShareModal(msg); 
+                      }}
                       title="Поделиться"
                     >
                       <i className="fas fa-share-alt"></i>
@@ -977,6 +1167,32 @@ function Forum() {
                 )}
                 
                 <div className="chat-message-text">
+                  {/* БЛОК ОТВЕТА (цитата) */}
+                  {msg.reply_to && (
+                    <div 
+                      className="message-reply-quote"
+                      onClick={() => {
+                        const replyMsgId = msg.reply_to.message_id;
+                        setHighlightedMessageId(replyMsgId);
+                        
+                        const element = document.querySelector(`[data-message-id="${replyMsgId}"]`);
+                        if (element) {
+                          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                        
+                        setTimeout(() => {
+                          setHighlightedMessageId(null);
+                        }, 3000);
+                      }}
+                    >
+                      <div className="reply-quote-sender">
+                        <i className="fas fa-reply"></i>
+                        <span>{msg.reply_to.username}</span>
+                      </div>
+                      <div className="reply-quote-text">{msg.reply_to.text}</div>
+                    </div>
+                  )}
+                  
                   {msg.text && <div className="message-text-content">{msg.text}</div>}
                   
                   {/* ФАЙЛЫ */}
@@ -1001,7 +1217,6 @@ function Forum() {
                           (file.type && file.type.startsWith('audio/')) ||
                           (file.name && /\.(mp3|wav|flac|aac|ogg|wma)$/i.test(file.name));
                         
-                        // ФОТО
                         if (isImage) {
                           const imgSrc = file.preview || fileUrl;
                           return (
@@ -1025,7 +1240,6 @@ function Forum() {
                           );
                         }
                         
-                        // ВИДЕО
                         if (isVideo) {
                           return (
                             <div key={idx} className="message-file-video">
@@ -1036,7 +1250,6 @@ function Forum() {
                           );
                         }
                         
-                        // АУДИО
                         if (isAudio) {
                           return (
                             <div key={idx} className="message-file-audio">
@@ -1047,7 +1260,6 @@ function Forum() {
                           );
                         }
                         
-                        // ОСТАЛЬНЫЕ ФАЙЛЫ
                         return (
                           <div key={idx} className="message-file">
                             <i className="fas fa-file"></i>
@@ -1073,11 +1285,38 @@ function Forum() {
         </React.Fragment>
       );
     });
-  }, [messages, selectedChat, user, handleShareMessage, handleMessageMenuToggle, getFileUrl, openImageViewer]);
+  }, [messages, selectedChat, user, openShareModal, handleMessageMenuToggle, getFileUrl, openImageViewer, highlightedMessageId]);
 
   const getUserById = useCallback((id) => {
     return users.find(u => u.id === id) || { name: 'Неизвестный', username: 'unknown' };
   }, [users]);
+
+  // ===== ЗАКРЫТИЕ КОНТЕКСТНОГО МЕНЮ ПО КЛИКУ ВНЕ =====
+  useEffect(() => {
+    if (!messageContextMenu) return;
+    
+    const handleClickOutside = (e) => {
+      const menu = document.querySelector('.message-context-menu');
+      if (menu && !menu.contains(e.target)) {
+        closeMessageContextMenu();
+      }
+    };
+    
+    const handleScroll = () => {
+      closeMessageContextMenu();
+    };
+    
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside);
+      document.addEventListener('scroll', handleScroll, true);
+    }, 50);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('click', handleClickOutside);
+      document.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [messageContextMenu, closeMessageContextMenu]);
 
   // ===== JSX =====
   return (
@@ -1105,115 +1344,6 @@ function Forum() {
                 <p>Ничего не найдено</p>
               </div>
             )}
-            {searchResults.map(item => {
-              if (item._type === 'group') {
-                return (
-                  <div key={item.id} className="search-result-item clickable" onClick={() => {
-                    const savedChats = JSON.parse(localStorage.getItem('userChats') || '[]');
-                    if (!savedChats.some(c => c.id === item.id)) {
-                      savedChats.push({
-                        id: item.id,
-                        name: item.name,
-                        isGroup: true,
-                        creatorId: item.creatorId,
-                        members: item.members
-                      });
-                      localStorage.setItem('userChats', JSON.stringify(savedChats));
-                      setSelectedUsers(savedChats);
-                    }
-                    setSelectedChat(item.id);
-                    setShowSearchResults(false);
-                    setSearchQuery('');
-                  }} style={{ cursor: 'pointer' }}>
-                    <div className="search-result-info">
-                      <div className="search-result-avatar group-avatar"><i className="fas fa-users"></i></div>
-                      <div className="search-result-details">
-                        <div className="search-result-username" style={{ color: '#7c3aed' }}>
-                          <i className="fas fa-users" style={{ marginRight: '6px' }}></i>
-                          {item.name}
-                        </div>
-                        <div className="search-result-name">Группа • {item.memberCount || item.members?.length || 0} участников</div>
-                      </div>
-                    </div>
-                    <button className="search-result-btn btn-open-chat" onClick={(e) => {
-                      e.stopPropagation();
-                      const savedChats = JSON.parse(localStorage.getItem('userChats') || '[]');
-                      if (!savedChats.some(c => c.id === item.id)) {
-                        savedChats.push({
-                          id: item.id,
-                          name: item.name,
-                          isGroup: true,
-                          creatorId: item.creatorId,
-                          members: item.members
-                        });
-                        localStorage.setItem('userChats', JSON.stringify(savedChats));
-                        setSelectedUsers(savedChats);
-                      }
-                      setSelectedChat(item.id);
-                      setShowSearchResults(false);
-                      setSearchQuery('');
-                    }}><i className="fas fa-arrow-right"></i> Открыть</button>
-                  </div>
-                );
-              }
-              
-              const status = subscriptionStatuses[item.id] || 'none';
-              const isSubscribed = status === 'approved';
-              const isPending = status === 'pending';
-              const isRejected = status === 'rejected';
-              
-              return (
-                <div key={item.id} className={`search-result-item ${isSubscribed ? 'clickable' : ''}`} onClick={() => {
-                  if (isSubscribed) {
-                    const chatId = `private_${Math.min(user.id, item.id)}_${Math.max(user.id, item.id)}`;
-                    if (!selectedUsers.some(u => u.id === item.id)) {
-                      const updated = [...selectedUsers, item];
-                      setSelectedUsers(updated);
-                      localStorage.setItem('userChats', JSON.stringify(updated));
-                    }
-                    setSelectedChat(chatId);
-                    setShowSearchResults(false);
-                    setSearchQuery('');
-                    checkSubscriptionStatus(item.id, user.id);
-                  }
-                }} style={{ cursor: isSubscribed ? 'pointer' : 'default' }}>
-                  <div className="search-result-info">
-                    <div className="search-result-avatar"><i className="fas fa-user-circle"></i></div>
-                    <div className="search-result-details">
-                      <div className="search-result-username">@{item.username}</div>
-                      <div className="search-result-name">{item.name}</div>
-                      <div className="search-result-status">
-                        {isSubscribed && <span className="status-badge subscribed"><i className="fas fa-check-circle"></i> Подписан</span>}
-                        {isPending && <span className="status-badge pending"><i className="fas fa-clock"></i> Ожидает</span>}
-                        {isRejected && <span className="status-badge rejected"><i className="fas fa-times-circle"></i> Отклонено</span>}
-                        {!isSubscribed && !isPending && !isRejected && <span className="status-badge none"><i className="fas fa-user-plus"></i> Не подписан</span>}
-                      </div>
-                    </div>
-                  </div>
-                  {isSubscribed ? (
-                    <button className="search-result-btn btn-open-chat" onClick={(e) => {
-                      e.stopPropagation();
-                      const chatId = `private_${Math.min(user.id, item.id)}_${Math.max(user.id, item.id)}`;
-                      if (!selectedUsers.some(u => u.id === item.id)) {
-                        const updated = [...selectedUsers, item];
-                        setSelectedUsers(updated);
-                        localStorage.setItem('userChats', JSON.stringify(updated));
-                      }
-                      setSelectedChat(chatId);
-                      setShowSearchResults(false);
-                      setSearchQuery('');
-                    }}><i className="fas fa-comment-dots"></i> Открыть чат</button>
-                  ) : isPending ? (
-                    <button className="search-result-btn btn-pending" disabled><i className="fas fa-clock"></i> Ожидает</button>
-                  ) : (
-                    <button className="search-result-btn btn-subscribe" onClick={(e) => {
-                      e.stopPropagation();
-                      handleSubscribe(item.id);
-                    }} disabled={isRejected}><i className="fas fa-user-plus"></i> Подписаться</button>
-                  )}
-                </div>
-              );
-            })}
           </div>
         )}
 
@@ -1584,6 +1714,35 @@ function Forum() {
           <div ref={null} />
         </div>
 
+        {/* БЛОК ОТВЕТА НА СООБЩЕНИЕ */}
+        {replyToMessage && (
+          <div className="reply-message-bar">
+            <div className="reply-message-info">
+              <i className="fas fa-reply"></i>
+              <span className="reply-message-label">Ответ на:</span>
+              <span className="reply-message-sender">{replyToMessage.username}</span>
+              <span className="reply-message-text">{replyToMessage.text}</span>
+            </div>
+            <button className="reply-message-cancel" onClick={cancelReply} title="Отменить ответ">
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
+        )}
+
+        {/* БЛОК РЕДАКТИРОВАНИЯ */}
+        {editingMessage && (
+          <div className="edit-message-bar">
+            <div className="edit-message-info">
+              <i className="fas fa-pen"></i>
+              <span className="edit-message-label">Редактирование:</span>
+              <span className="edit-message-text">{editingMessage.text}</span>
+            </div>
+            <button className="edit-message-cancel" onClick={cancelEdit} title="Отменить редактирование">
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
+        )}
+
         {/* ПРЕВЬЮ ФАЙЛОВ */}
         {selectedFiles.length > 0 && (
           <div className="file-preview-container">
@@ -1636,14 +1795,14 @@ function Forum() {
                   ref={inputRef} 
                   type="text" 
                   className="chat-input" 
-                  placeholder={selectedFiles.length > 0 ? 'Добавить текст к файлам...' : 'Введите сообщение...'} 
+                  placeholder={editingMessage ? 'Редактирование сообщения...' : replyToMessage ? 'Введите ответ...' : (selectedFiles.length > 0 ? 'Добавить текст к файлам...' : 'Введите сообщение...')} 
                   value={newMessage} 
                   onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyDown={() => sendTyping()}  // ← Добавить
+                  onKeyDown={() => sendTyping()}
                   disabled={!isConnected || isUploading} 
                 />
                 <button type="submit" className="chat-send-btn" disabled={(!newMessage.trim() && selectedFiles.length === 0) || !isConnected || isUploading}>
-                  {isUploading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
+                  {editingMessage ? <i className="fas fa-check"></i> : (isUploading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>)}
                 </button>
               </div>
             </form>
@@ -1696,52 +1855,157 @@ function Forum() {
         canDelete={true}
       />
 
+      {/* МОДАЛЬНОЕ ОКНО ПОДЕЛИТЬСЯ */}
+      {shareModalOpen && (
+        <div className="modal-overlay" onClick={() => setShareModalOpen(false)}>
+          <div className="modal-content share-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '450px' }}>
+            <div className="modal-header">
+              <h3><i className="fas fa-share-alt"></i> Поделиться</h3>
+              <button className="modal-close" onClick={() => setShareModalOpen(false)}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            
+            <div className="modal-body" style={{ padding: '16px 20px', maxHeight: '400px', overflowY: 'auto' }}>
+              {/* Превью сообщения */}
+              <div className="share-message-preview">
+                <div className="share-message-sender">
+                  <i className="fas fa-user-circle"></i>
+                  <span>{shareMessage?.username || user?.name}</span>
+                </div>
+                <div className="share-message-text">
+                  {shareMessage?.text || 'Сообщение без текста'}
+                </div>
+                {shareMessage?.files?.length > 0 && (
+                  <div className="share-message-files">
+                    <i className="fas fa-paperclip"></i>
+                    <span>{shareMessage.files.length} файлов</span>
+                  </div>
+                )}
+              </div>
+              
+              {/* Поиск контактов */}
+              <div className="share-search">
+                <i className="fas fa-search"></i>
+                <input 
+                  type="text" 
+                  placeholder="Поиск контактов..." 
+                  value={shareSearchQuery}
+                  onChange={(e) => setShareSearchQuery(e.target.value)}
+                />
+              </div>
+              
+              {/* Список контактов */}
+              <div className="share-contact-list">
+                {selectedUsers
+                  .filter(u => u.id !== user?.id)
+                  .filter(u => 
+                    u.name.toLowerCase().includes(shareSearchQuery.toLowerCase()) ||
+                    (u.username && u.username.toLowerCase().includes(shareSearchQuery.toLowerCase()))
+                  )
+                  .map(contact => {
+                    const isSelected = selectedContacts.includes(contact.id);
+                    const isMutual = mutualSubscriptions[contact.id] || subscriptionStatuses[contact.id] === 'approved';
+                    
+                    return (
+                      <div 
+                        key={contact.id} 
+                        className={`share-contact-item ${isSelected ? 'selected' : ''}`}
+                        onClick={() => toggleContactForShare(contact.id)}
+                      >
+                        <div className="share-contact-info">
+                          <div className="share-contact-avatar">
+                            <i className="fas fa-user-circle"></i>
+                          </div>
+                          <div className="share-contact-details">
+                            <div className="share-contact-name">{contact.name}</div>
+                            <div className="share-contact-username">@{contact.username}</div>
+                          </div>
+                        </div>
+                        {!isMutual && (
+                          <span className="share-contact-status">❌</span>
+                        )}
+                        <div className={`share-checkbox ${isSelected ? 'checked' : ''}`}>
+                          {isSelected && <i className="fas fa-check"></i>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                
+                {selectedUsers.filter(u => u.id !== user?.id).length === 0 && (
+                  <div className="share-empty">
+                    <p>Нет доступных контактов</p>
+                  </div>
+                )}
+              </div>
+              
+              {/* Выбранные контакты */}
+              {selectedContacts.length > 0 && (
+                <div className="share-selected-count">
+                  Выбрано: <strong>{selectedContacts.length}</strong> контактов
+                </div>
+              )}
+            </div>
+            
+            <div className="modal-footer" style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button className="btn-cancel" onClick={() => setShareModalOpen(false)} style={{ padding: '10px 20px', background: '#f1f5f9', border: 'none', borderRadius: '10px', color: '#64748b', fontWeight: 600, cursor: 'pointer' }}>
+                Отмена
+              </button>
+              <button 
+                className="btn-submit" 
+                onClick={handleShareToContacts} 
+                disabled={selectedContacts.length === 0}
+                style={{ padding: '10px 20px', background: selectedContacts.length === 0 ? '#94a3b8' : '#7c3aed', border: 'none', borderRadius: '10px', color: 'white', fontWeight: 600, cursor: selectedContacts.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <i className="fas fa-paper-plane"></i> Отправить ({selectedContacts.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* КОНТЕКСТНОЕ МЕНЮ ДЛЯ СООБЩЕНИЯ */}
       {messageContextMenu && (
-        <div className="message-context-menu" style={{
-          position: 'fixed',
-          top: Math.min(messageContextMenu.y, window.innerHeight - 220),
-          left: Math.min(messageContextMenu.x, window.innerWidth - 240),
-          zIndex: 100000,
-          background: 'rgba(30, 30, 30, 0.95)',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
-          borderRadius: '12px',
-          padding: '6px 0',
-          minWidth: '200px',
-          boxShadow: '0 8px 30px rgba(0, 0, 0, 0.5)',
-          border: '1px solid rgba(255, 255, 255, 0.06)',
-          animation: 'contextFadeIn 0.15s ease'
-        }} onClick={(e) => e.stopPropagation()}>
-          <div className="message-context-menu-item" onClick={() => { handleShareMessage(messageContextMenu.message); closeMessageContextMenu(); }} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.9rem', color: 'rgba(255, 255, 255, 0.9)', transition: '0.2s', fontWeight: 500 }}>
-            <i className="fas fa-share-alt" style={{ fontSize: '0.9rem', color: 'rgba(255, 255, 255, 0.5)', width: '18px', textAlign: 'center' }}></i>
-            <span>Переслать</span>
+        <div 
+          className="message-context-menu" 
+          style={{
+            position: 'fixed',
+            top: Math.min(messageContextMenu.y, window.innerHeight - 220),
+            left: Math.min(messageContextMenu.x, window.innerWidth - 240),
+            zIndex: 100000,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="message-context-menu-item" onClick={() => openShareModal(messageContextMenu.message)}>
+            <i className="fas fa-share-alt"></i>
+            <span>Поделиться</span>
           </div>
-          <div className="message-context-menu-item" onClick={() => {
-            const text = messageContextMenu.message.text || '';
-            if (text) {
-              navigator.clipboard?.writeText(text);
-              addNotification('📋 Текст скопирован', 'success', 2000);
-            }
-            closeMessageContextMenu();
-          }} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.9rem', color: 'rgba(255, 255, 255, 0.9)', transition: '0.2s', fontWeight: 500 }}>
-            <i className="fas fa-copy" style={{ fontSize: '0.9rem', color: 'rgba(255, 255, 255, 0.5)', width: '18px', textAlign: 'center' }}></i>
+          
+          <div className="message-context-menu-item" onClick={() => handleCopyMessage(messageContextMenu.message)}>
+            <i className="fas fa-copy"></i>
             <span>Копировать текст</span>
           </div>
-          {messageContextMenu.message.userId === user?.id && (
-            <div className="message-context-menu-item message-context-menu-item-danger" onClick={() => {
-              addNotification('🗑️ Сообщение удалено (в разработке)', 'info', 3000);
-              closeMessageContextMenu();
-            }} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.9rem', color: '#ef4444', transition: '0.2s', fontWeight: 500 }}>
-              <i className="fas fa-trash" style={{ fontSize: '0.9rem', color: '#ef4444', width: '18px', textAlign: 'center' }}></i>
-              <span>Удалить</span>
-            </div>
-          )}
-          <div className="message-context-menu-divider" style={{ height: '1px', background: 'rgba(255, 255, 255, 0.06)', margin: '4px 12px' }}></div>
-          <div className="message-context-menu-item" onClick={closeMessageContextMenu} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.9rem', color: 'rgba(255, 255, 255, 0.9)', transition: '0.2s', fontWeight: 500 }}>
-            <i className="fas fa-times" style={{ fontSize: '0.9rem', color: 'rgba(255, 255, 255, 0.5)', width: '18px', textAlign: 'center' }}></i>
-            <span>Закрыть</span>
+          
+          <div className="message-context-menu-item" onClick={() => handleReplyMessage(messageContextMenu.message)}>
+            <i className="fas fa-reply"></i>
+            <span>Ответить</span>
           </div>
+          
+          <div className="message-context-menu-divider"></div>
+          
+          {messageContextMenu.message.userId === user?.id && (
+            <>
+              <div className="message-context-menu-item" onClick={() => handleEditMessage(messageContextMenu.message)}>
+                <i className="fas fa-pen"></i>
+                <span>Редактировать</span>
+              </div>
+              
+              <div className="message-context-menu-item message-context-menu-item-danger" onClick={() => handleDeleteMessage(messageContextMenu.message)}>
+                <i className="fas fa-trash"></i>
+                <span>Удалить</span>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

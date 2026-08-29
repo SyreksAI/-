@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 
 function ChatMessage({ 
   msg, 
-  isOwn, 
+  isOwn,  // ← ПРОСТО ПРИНИМАЙ isOwn КАК ПАРАМЕТР!
   isSystem, 
   onOpenImageViewer, 
   onShare, 
@@ -37,16 +37,10 @@ function ChatMessage({
       <div className="chat-message-content">
         <div className="chat-message-bubble" style={{ position: 'relative' }}>
           
-          {/* Кнопки при наведении */}
+          {/* ✅ Кнопки при наведении */}
           {!isSystem && (
-            <div className="message-hover-actions">
-              <button 
-                className="message-hover-btn message-reply-btn"
-                onClick={(e) => { e.stopPropagation(); onReply && onReply(msg); }}
-                title="Ответить"
-              >
-                <i className="fas fa-reply"></i>
-              </button>
+            <div className={`message-hover-actions ${isOwn ? 'own' : ''}`}>
+              {/* Кнопка "Поделиться" */}
               <button 
                 className="message-hover-btn message-share-btn"
                 onClick={(e) => { e.stopPropagation(); onShare(msg); }}
@@ -54,6 +48,7 @@ function ChatMessage({
               >
                 <i className="fas fa-share-alt"></i>
               </button>
+              {/* Кнопка ⋮ — открывает контекстное меню */}
               <button 
                 className="message-hover-btn message-menu-btn"
                 onClick={(e) => onMenuToggle(e, msg)}
