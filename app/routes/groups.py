@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from typing import Optional, List
 import time
+import json
 from ..database import get_db
 from ..models import Group, User
 from ..schemas import GroupCreate, GroupResponse
@@ -23,6 +24,23 @@ async def get_current_user(
     return user
 
 
+def parse_members(members):
+    """Парсит поле members в список"""
+    if members is None:
+        return []
+    if isinstance(members, list):
+        return members
+    if isinstance(members, str):
+        try:
+            return json.loads(members)
+        except:
+            return []
+    try:
+        return json.loads(json.dumps(members))
+    except:
+        return []
+
+
 @router.get("/search")
 async def search_groups(
     q: str,
@@ -35,16 +53,20 @@ async def search_groups(
         Group.name.ilike(f"%{q}%")
     ).limit(50).all()
     
-    groups = [g for g in all_groups if current_user.id in g.members]
+    groups = []
+    for g in all_groups:
+        members = parse_members(g.members)
+        if current_user.id in members:
+            groups.append(g)
     
     return [
         {
             "id": g.id,
             "name": g.name,
             "creatorId": g.creator_id,
-            "members": g.members,
+            "members": parse_members(g.members),
             "isGroup": True,
-            "memberCount": len(g.members)
+            "memberCount": len(parse_members(g.members))
         }
         for g in groups
     ]
@@ -115,10 +137,13 @@ async def add_member(
     if group.creator_id != current_user.id:
         raise HTTPException(status_code=403, detail="Только создатель может добавлять участников")
     
-    if user_id in group.members:
+    members = parse_members(group.members)
+    
+    if user_id in members:
         raise HTTPException(status_code=400, detail="Пользователь уже в группе")
     
-    group.members.append(user_id)
+    members.append(user_id)
+    group.members = members
     db.commit()
     db.refresh(group)
     
@@ -126,7 +151,7 @@ async def add_member(
         "id": group.id,
         "name": group.name,
         "creatorId": group.creator_id,
-        "members": group.members,
+        "members": members,
         "isGroup": True
     }
     
@@ -140,7 +165,7 @@ async def add_member(
         }
     )
     
-    return {"message": "Участник добавлен", "members": group.members}
+    return {"message": "Участник добавлен", "members": members}
 
 
 @router.get("/user/{user_id}")
@@ -153,14 +178,18 @@ async def get_user_groups(
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
     all_groups = db.query(Group).all()
-    groups = [g for g in all_groups if user_id in g.members]
+    groups = []
+    for g in all_groups:
+        members = parse_members(g.members)
+        if user_id in members:
+            groups.append(g)
     
     return [
         {
             "id": g.id,
             "name": g.name,
             "creatorId": g.creator_id,
-            "members": g.members,
+            "members": parse_members(g.members),
             "isGroup": True
         }
         for g in groups
@@ -177,19 +206,21 @@ async def get_group(
     if not group:
         raise HTTPException(status_code=404, detail="Группа не найдена")
     
-    if current_user.id not in group.members:
+    members = parse_members(group.members)
+    
+    if current_user.id not in members:
         raise HTTPException(status_code=403, detail="Вы не состоите в этой группе")
     
     return {
         "id": group.id,
         "name": group.name,
         "creatorId": group.creator_id,
-        "members": group.members,
+        "members": members,
         "isGroup": True
     }
 
 
-# ===== УДАЛЕНИЕ ГРУППЫ (только создатель) =====
+# ===== УДАЛЕНИЕ ГРУППЫ =====
 @router.delete("/{group_id}")
 async def delete_group(
     group_id: str,
@@ -198,20 +229,50 @@ async def delete_group(
 ):
     """Удалить группу (только создатель)"""
     
+    print(f"🗑️ Попытка удаления группы: {group_id}, пользователь: {current_user.id}")
+    
     group = db.query(Group).filter(Group.id == group_id).first()
     if not group:
-        raise HTTPException(status_code=404, detail="Группа не найдена")
+        print(f"❌ Группа {group_id} не найдена в БД")
+        # ✅ Возвращаем успех, чтобы клиент обновил состояние
+        return {"message": "Группа уже была удалена", "group_id": group_id, "already_deleted": True}
+    
+    print(f"📋 Найдена группа: {group.id}, создатель: {group.creator_id}")
     
     if group.creator_id != current_user.id:
+        print(f"❌ Пользователь {current_user.id} не является создателем группы")
         raise HTTPException(status_code=403, detail="Только создатель может удалить группу")
     
-    db.delete(group)
-    db.commit()
-    
-    return {"message": "Группа удалена"}
+    try:
+        group_name = group.name
+        members = parse_members(group.members)
+        
+        db.delete(group)
+        db.commit()
+        
+        print(f"✅ Группа {group_name} ({group_id}) удалена")
+        
+        for member_id in members:
+            if member_id != current_user.id:
+                await send_notification(
+                    user_id=member_id,
+                    notification_type="group_deleted",
+                    data={
+                        "group_id": group_id,
+                        "group_name": group_name,
+                        "deleted_by": current_user.name
+                    }
+                )
+        
+        return {"message": f"Группа '{group_name}' удалена", "group_id": group_id}
+        
+    except Exception as e:
+        print(f"❌ Ошибка при удалении группы: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении группы: {str(e)}")
 
 
-# ===== ВЫХОД ИЗ ГРУППЫ (участник) =====
+# ===== ВЫХОД ИЗ ГРУППЫ =====
 @router.delete("/{group_id}/remove-member")
 async def remove_member(
     group_id: str,
@@ -222,16 +283,20 @@ async def remove_member(
     
     group = db.query(Group).filter(Group.id == group_id).first()
     if not group:
-        raise HTTPException(status_code=404, detail="Группа не найдена")
+        # ✅ Если группы нет, возвращаем успех
+        return {"message": "Группа уже была удалена", "group_id": group_id, "already_deleted": True}
     
-    if current_user.id not in group.members:
-        raise HTTPException(status_code=400, detail="Вы не состоите в этой группе")
+    members = parse_members(group.members)
+    
+    if current_user.id not in members:
+        return {"message": "Вы уже не состоите в этой группе", "group_id": group_id, "already_deleted": True}
     
     if current_user.id == group.creator_id:
         raise HTTPException(status_code=400, detail="Создатель не может выйти из группы, только удалить её")
     
-    group.members.remove(current_user.id)
+    members.remove(current_user.id)
+    group.members = members
     db.commit()
     db.refresh(group)
     
-    return {"message": "Вы вышли из группы", "members": group.members}
+    return {"message": "Вы вышли из группы", "members": members}

@@ -2,10 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from passlib.context import CryptContext
+import logging
 from ..database import get_db
 from ..models import User, Subscription
 from ..schemas import UserResponse, SubscriptionRequest, UserUpdate
 from ..websocket_manager import send_notification
+from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -14,6 +18,20 @@ pwd_context = CryptContext(schemes=['pbkdf2_sha256'], deprecated='auto')
 
 def get_password_hash(password):
     return pwd_context.hash(password)
+
+def validate_password(password: str) -> bool:
+    """Проверка сложности пароля"""
+    if len(password) < 8:
+        return False
+    if not any(c.isupper() for c in password):
+        return False
+    if not any(c.islower() for c in password):
+        return False
+    if not any(c.isdigit() for c in password):
+        return False
+    if not any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in password):
+        return False
+    return True
 
 
 # ===== ЗАВИСИМОСТЬ ДЛЯ ПОЛУЧЕНИЯ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ =====
@@ -126,6 +144,7 @@ async def subscribe(
                     "follower_username": current_user.username
                 }
             )
+            logger.info(f"📨 Запрос на подписку отправлен повторно от {current_user.id} к {request.following_id}")
             return {"id": existing.id, "status": existing.status, "message": "Запрос отправлен повторно"}
     
     subscription = Subscription(
@@ -148,6 +167,8 @@ async def subscribe(
         }
     )
     
+    logger.info(f"📨 Запрос на подписку отправлен от {current_user.id} к {request.following_id}")
+    
     return {"id": subscription.id, "status": subscription.status, "message": "Запрос отправлен"}
 
 
@@ -167,6 +188,7 @@ async def approve_subscription(
     
     subscription.status = "approved"
     
+    # Создаём обратную подписку
     reverse_sub = db.query(Subscription).filter(
         Subscription.follower_id == current_user.id,
         Subscription.following_id == subscription.follower_id
@@ -194,6 +216,8 @@ async def approve_subscription(
         }
     )
     
+    logger.info(f"✅ Подписка #{subscription_id} одобрена")
+    
     return {"message": "Подписка одобрена", "status": "approved"}
 
 
@@ -210,6 +234,9 @@ async def reject_subscription(
     
     subscription.status = "rejected"
     db.commit()
+    
+    logger.info(f"❌ Подписка #{subscription_id} отклонена")
+    
     return {"message": "Подписка отклонена", "status": "rejected"}
 
 
@@ -376,11 +403,20 @@ async def update_user(
         if len(password) < 6:
             raise HTTPException(status_code=400, detail="Пароль должен содержать минимум 6 символов")
         
+        # ✅ Проверка сложности пароля
+        if not validate_password(password):
+            raise HTTPException(
+                status_code=400, 
+                detail="Пароль должен содержать минимум 8 символов, включая заглавную и строчную буквы, цифру и спецсимвол"
+            )
+        
         user.password = get_password_hash(password)
     
     # Сохраняем изменения
     db.commit()
     db.refresh(user)
+    
+    logger.info(f"✅ Профиль пользователя {user_id} обновлён")
     
     # Возвращаем обновленного пользователя
     return UserResponse(

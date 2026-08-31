@@ -67,7 +67,7 @@ class MessageCreate(BaseModel):
     chat_id: str = "general"
     recipient_id: Optional[int] = None
     files: List[Dict[str, Any]] = []
-    reply_to: Optional[Dict[str, Any]] = None  # ✅ ДОБАВЛЕНО
+    reply_to: Optional[Dict[str, Any]] = None
 
 class MessageResponse(BaseModel):
     id: int
@@ -83,7 +83,7 @@ class MessageResponse(BaseModel):
     read: bool
     timestamp: datetime
     files: List[Dict[str, Any]] = []
-    reply_to: Optional[Dict[str, Any]] = None  # ✅ ДОБАВЛЕНО
+    reply_to: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

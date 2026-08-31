@@ -56,10 +56,10 @@ class Message(Base):
     timestamp = Column(DateTime, server_default=func.now())
     files = Column(JSON, default=[])
     
-    # ✅ ПОЛЕ ДЛЯ ОТВЕТА
+    # Поле для ответа
     reply_to_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
     
-    # ✅ СВЯЗЬ С РОДИТЕЛЬСКИМ СООБЩЕНИЕМ
+    # Связь с родительским сообщением
     reply_to = relationship("Message", remote_side=[id], foreign_keys=[reply_to_id])
     
     sender = relationship("User", foreign_keys=[user_id], back_populates="messages_sent")

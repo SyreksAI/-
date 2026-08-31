@@ -20,7 +20,11 @@ class WebSocketService {
     }
 
     this.userId = userId;
-    const wsUrl = `ws://localhost:8080/ws/${userId}`;
+    
+    // ✅ ИСПРАВЛЕНО: используем порт 8000 (как в FastAPI)
+    // Если ваш сервер на 8080, оставьте 8080, но убедитесь что сервер слушает этот порт
+    const WS_PORT = process.env.REACT_APP_WS_PORT || 8000;
+    const wsUrl = `ws://localhost:${WS_PORT}/ws/${userId}`;
     console.log(`🔌 Connecting to WebSocket: ${wsUrl}`);
 
     try {
@@ -34,7 +38,11 @@ class WebSocketService {
           type: 'connection_status',
           status: 'connected'
         });
-        this.connectedUsers.add(this.userId);
+        // Отправляем приветственное сообщение для получения истории
+        this.sendMessage({
+          type: 'get_history',
+          chat_id: 'general'
+        });
       };
 
       this.ws.onmessage = (event) => {

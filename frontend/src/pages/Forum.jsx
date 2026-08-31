@@ -8,10 +8,11 @@ import ImageModal from '../components/ImageModal';
 import { formatTime, formatDate, formatFileSize, getFileIcon, getFileColor } from '../utils/helpers';
 import { useFiles } from '../hooks/useFiles';
 import { useChat } from '../hooks/useChat';
+import { MESSAGES } from '../utils/messages';
 
 function Forum() {
   const navigate = useNavigate();
-  
+
   // ===== ОСНОВНЫЕ СОСТОЯНИЯ =====
   const [user, setUser] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -25,20 +26,20 @@ function Forum() {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResultsGroups, setSearchResultsGroups] = useState([]);
-  
+
   // ===== СОСТОЯНИЯ ПОДПИСОК =====
   const [subscriptionStatuses, setSubscriptionStatuses] = useState({});
   const [pendingSubscriptions, setPendingSubscriptions] = useState([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
   const [mutualSubscriptions, setMutualSubscriptions] = useState({});
-  
+
   // ===== СОСТОЯНИЯ ЧАТОВ =====
   const [pinnedChats, setPinnedChats] = useState([]);
   const [customChatNames, setCustomChatNames] = useState({});
   const [contextMenu, setContextMenu] = useState(null);
   const [messageContextMenu, setMessageContextMenu] = useState(null);
-  
+
   // ===== МОДАЛЬНЫЕ ОКНА =====
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [imageModalFiles, setImageModalFiles] = useState([]);
@@ -53,31 +54,32 @@ function Forum() {
   const [showRenameModal, setShowRenameModal] = useState(null);
   const [newChatName, setNewChatName] = useState('');
   const [actionMenuPos, setActionMenuPos] = useState(null);
-  
+
   // ===== РЕДАКТИРОВАНИЕ =====
   const [editingMessage, setEditingMessage] = useState(null);
-  
+
   // ===== ПОДЕЛИТЬСЯ =====
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareMessage, setShareMessage] = useState(null);
   const [selectedContacts, setSelectedContacts] = useState([]);
   const [shareSearchQuery, setShareSearchQuery] = useState('');
-  
+  const [shareActiveTab, setShareActiveTab] = useState('all');
+
   // ===== ОТВЕТ НА СООБЩЕНИЕ =====
   const [replyToMessage, setReplyToMessage] = useState(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState(null);
-  
+
   // ===== УВЕДОМЛЕНИЯ =====
   const [notifications, setNotifications] = useState([]);
   const [showBrowserPermission, setShowBrowserPermission] = useState(false);
-  
+
   // ===== REFS =====
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const searchInputRef = useRef(null);
   const addButtonRef = useRef(null);
   const messageListRef = useRef(null);
-  
+
   // ===== ХУКИ =====
   const {
     selectedFiles,
@@ -107,8 +109,8 @@ function Forum() {
   } = useChat(user, selectedChat, setMessages);
 
   // ===== УВЕДОМЛЕНИЯ =====
-  const addNotification = useCallback((message, type = 'info', duration = 5000) => {
-    const id = Date.now();
+  const addNotification = useCallback((message, type = 'info', duration = 4000) => {
+    const id = Date.now() + Math.random();
     setNotifications(prev => [...prev, { id, message, type, duration }]);
     setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), duration);
   }, []);
@@ -121,7 +123,7 @@ function Forum() {
       localStorage.setItem('users', JSON.stringify(data));
     } catch (error) {
       console.error('Error loading users:', error);
-      addNotification('❌ Ошибка загрузки пользователей', 'error');
+      addNotification(MESSAGES.LOAD_ERROR, 'error');
     }
   }, [addNotification]);
 
@@ -145,7 +147,7 @@ function Forum() {
       const data = await get(`/api/users/${userId}/subscriptions`, {
         'X-User-ID': String(userId)
       });
-      
+
       const statuses = {};
       data.forEach(sub => { statuses[sub.following_id] = sub.status; });
       setSubscriptionStatuses(statuses);
@@ -162,7 +164,7 @@ function Forum() {
       const data = await get(`/api/users/subscriptions/status/${targetUserId}`, {
         'X-User-ID': String(uid)
       });
-      
+
       setSubscriptionStatuses(prev => {
         const updated = { ...prev, [targetUserId]: data.status };
         localStorage.setItem('subscriptionStatuses', JSON.stringify(updated));
@@ -175,25 +177,54 @@ function Forum() {
 
   const handleSubscribe = useCallback(async (targetUserId) => {
     if (!user?.id) return;
+    
+    // Проверяем текущий статус
+    const currentStatus = subscriptionStatuses[targetUserId] || 'none';
+    
+    if (currentStatus === 'approved') {
+      addNotification('Вы уже подписаны на этого пользователя', 'info', 3000);
+      return;
+    }
+    
+    if (currentStatus === 'pending') {
+      addNotification('Запрос на подписку уже отправлен', 'info', 3000);
+      return;
+    }
+
     try {
-      await post('/api/users/subscribe', 
+      await post('/api/users/subscribe',
         { following_id: targetUserId },
         { 'X-User-ID': String(user.id) }
       );
-      
+
       setSubscriptionStatuses(prev => ({ ...prev, [targetUserId]: 'pending' }));
-      
+
       const foundUser = users.find(u => u.id === targetUserId);
       if (foundUser && !selectedUsers.some(u => u.id === targetUserId)) {
         const updated = [...selectedUsers, foundUser];
         setSelectedUsers(updated);
         localStorage.setItem('userChats', JSON.stringify(updated));
       }
-      addNotification('📨 Запрос на подписку отправлен', 'info', 3000);
+      addNotification(MESSAGES.SUBSCRIPTION_REQUESTED, 'info', 3000);
     } catch (error) {
-      addNotification(`❌ ${error.message || 'Ошибка подписки'}`, 'error', 4000);
+      console.error('Subscribe error:', error);
+      if (error.response && error.response.data && error.response.data.detail) {
+        // Если ошибка говорит, что уже подписан или запрос отправлен
+        if (error.response.data.detail.includes('уже подписаны') || 
+            error.response.data.detail.includes('already subscribed')) {
+          setSubscriptionStatuses(prev => ({ ...prev, [targetUserId]: 'approved' }));
+          addNotification('Вы уже подписаны на этого пользователя', 'info', 3000);
+        } else if (error.response.data.detail.includes('Запрос уже отправлен')) {
+          setSubscriptionStatuses(prev => ({ ...prev, [targetUserId]: 'pending' }));
+          addNotification('Запрос на подписку уже отправлен', 'info', 3000);
+        } else {
+          addNotification(`${MESSAGES.SUBSCRIPTION_ERROR}: ${error.response.data.detail}`, 'error', 4000);
+        }
+      } else {
+        addNotification(MESSAGES.SUBSCRIPTION_ERROR, 'error', 4000);
+      }
     }
-  }, [user, users, selectedUsers, addNotification]);
+  }, [user, users, selectedUsers, subscriptionStatuses, addNotification]);
 
   const handleApproveSubscription = useCallback(async (subscriptionId, followerId) => {
     if (!user?.id) return;
@@ -201,10 +232,10 @@ function Forum() {
       await put(`/api/users/subscriptions/${subscriptionId}/approve`, {}, {
         'X-User-ID': String(user.id)
       });
-      
+
       setPendingSubscriptions(prev => prev.filter(s => s.id !== subscriptionId));
       setNotificationCount(prev => Math.max(0, prev - 1));
-      
+
       const follower = users.find(u => u.id === followerId);
       if (follower && !selectedUsers.some(u => u.id === followerId)) {
         setSelectedUsers(prev => {
@@ -213,43 +244,43 @@ function Forum() {
           return updated;
         });
       }
-      
+
       setSelectedChat(`private_${Math.min(user.id, followerId)}_${Math.max(user.id, followerId)}`);
       setShowNotifications(false);
-      addNotification('✅ Взаимная подписка установлена!', 'success', 4000);
+      addNotification(MESSAGES.SUBSCRIPTION_APPROVED, 'success', 4000);
     } catch (error) {
-      addNotification(`❌ ${error.message || 'Ошибка'}`, 'error', 4000);
+      addNotification(`${MESSAGES.SUBSCRIPTION_ERROR}: ${error.message || ''}`, 'error', 4000);
     }
   }, [user, users, selectedUsers, addNotification]);
 
   // ===== ЧАТЫ =====
   const getChats = useCallback(() => {
     if (!user) return [{ id: 'general', name: 'Общий чат', icon: 'fas fa-users', type: 'public' }];
-    
+
     const privateChats = [];
     const groupChats = [];
-    
+
     selectedUsers.forEach(u => {
       if (u.isGroup) {
         groupChats.push({
-          id: u.id, 
-          name: u.name, 
-          icon: 'fas fa-users', 
+          id: u.id,
+          name: u.name,
+          icon: 'fas fa-users',
           type: 'group',
-          creatorId: u.creatorId, 
-          members: u.members, 
+          creatorId: u.creatorId,
+          members: u.members,
           isPinned: pinnedChats.includes(u.id),
           createdAt: u.createdAt || new Date().toISOString()
         });
       } else if (u.id !== user.id) {
         const chatId = `private_${Math.min(user.id, u.id)}_${Math.max(user.id, u.id)}`;
-        privateChats.push({ 
-          id: chatId, 
-          name: customChatNames[chatId] || u.name, 
+        privateChats.push({
+          id: chatId,
+          name: customChatNames[chatId] || u.name,
           originalName: u.name,
-          icon: 'fas fa-user', 
-          type: 'private', 
-          userId: u.id, 
+          icon: 'fas fa-user',
+          type: 'private',
+          userId: u.id,
           isPinned: pinnedChats.includes(chatId),
           createdAt: u.addedAt || new Date().toISOString()
         });
@@ -305,7 +336,7 @@ function Forum() {
       if (typeof websocketService.isUserConnected === 'function') {
         return websocketService.isUserConnected(userId);
       }
-    } catch (e) {}
+    } catch (e) { }
     return false;
   }, [users]);
 
@@ -315,11 +346,11 @@ function Forum() {
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-    
+
     const currentUser = JSON.parse(localStorage.getItem('currentUser'));
     if (currentUser && currentUser.id) {
       setUser(currentUser);
-      
+
       try {
         if (typeof websocketService.isConnected === 'function') {
           if (!websocketService.isConnected()) {
@@ -329,19 +360,19 @@ function Forum() {
           websocketService.connect(currentUser.id);
         }
       } catch (error) {
-        console.error('❌ Ошибка подключения WebSocket:', error);
+        console.error('Ошибка подключения WebSocket:', error);
       }
-      
+
       const loadData = async () => {
         await loadPendingSubscriptions(currentUser.id);
         await loadAllSubscriptionStatuses(currentUser.id);
         await loadAllUsers();
       };
       loadData();
-      
+
       const savedChats = JSON.parse(localStorage.getItem('userChats') || '[]');
       setSelectedUsers(savedChats);
-      
+
       savedChats.forEach(chat => {
         if (!chat.isGroup) {
           const chatId = `private_${Math.min(currentUser.id, chat.id)}_${Math.max(currentUser.id, chat.id)}`;
@@ -362,10 +393,10 @@ function Forum() {
   // ===== WEBSOCKET =====
   useEffect(() => {
     let isMounted = true;
-    
+
     const handleMessage = (data) => {
       if (!isMounted) return;
-      
+
       if (data.type === 'new_message' || data.type === 'history') {
         const rawMsg = data.message;
         const msg = {
@@ -385,31 +416,28 @@ function Forum() {
         if (data.type === 'new_message' && msg.chatId !== selectedChat && msg.userId !== user?.id) {
           setUnreadCounts(prev => ({ ...prev, [msg.chatId]: (prev[msg.chatId] || 0) + 1 }));
           if (!msg.isSystem) {
-            addNotification(`💬 ${msg.username}: ${msg.text.substring(0, 30)}...`, 'message', 5000);
+            addNotification(`${msg.username}: ${msg.text.substring(0, 30)}...`, 'message', 5000);
           }
         }
-      } 
-      else if (data.type === 'connection_status') {
+      } else if (data.type === 'connection_status') {
         setIsConnected(data.status === 'connected');
-      }
-      else if (data.type === 'notification') {
+      } else if (data.type === 'notification') {
         if (data.notification_type === 'subscription_request') {
           const { follower_id, follower_name, follower_username, subscription_id } = data.data;
           const name = follower_name || follower_username || 'Пользователь';
           setPendingSubscriptions(prev => {
             if (prev.some(s => s.follower_id === follower_id)) return prev;
-            return [...prev, { 
-              id: subscription_id, 
-              follower_id, 
-              follower_name: name, 
-              follower_username, 
-              created_at: new Date().toISOString() 
+            return [...prev, {
+              id: subscription_id,
+              follower_id,
+              follower_name: name,
+              follower_username,
+              created_at: new Date().toISOString()
             }];
           });
           setNotificationCount(prev => prev + 1);
-          addNotification(`🔔 ${name} хочет подписаться на вас!`, 'subscription', 7000);
-        } 
-        else if (data.notification_type === 'subscription_approved') {
+          addNotification(`${name} хочет подписаться на вас`, 'subscription', 7000);
+        } else if (data.notification_type === 'subscription_approved') {
           const { following_id, follower_id } = data.data;
           setSubscriptionStatuses(prev => {
             const updated = { ...prev, [following_id]: 'approved', [follower_id]: 'approved' };
@@ -417,66 +445,66 @@ function Forum() {
             return updated;
           });
           setMutualSubscriptions(prev => ({ ...prev, [follower_id]: true, [following_id]: true }));
-          addNotification('✅ Взаимная подписка установлена!', 'success', 4000);
-        }
-        else if (data.notification_type === 'group_added') {
+          addNotification(MESSAGES.SUBSCRIPTION_APPROVED, 'success', 4000);
+        } else if (data.notification_type === 'group_added') {
           const { group, added_by } = data.data;
           const savedChats = JSON.parse(localStorage.getItem('userChats') || '[]');
           if (!savedChats.some(c => c.id === group.id)) {
             savedChats.push(group);
             localStorage.setItem('userChats', JSON.stringify(savedChats));
             setSelectedUsers(savedChats);
-            addNotification(`👥 Вас добавили в группу "${group.name}" пользователем ${added_by}`, 'success', 5000);
+            addNotification(`Вас добавили в группу "${group.name}" пользователем ${added_by}`, 'success', 5000);
             loadChatHistory(group.id);
           }
         }
-      }
-      else if (data.type === 'error') {
-        addNotification(`❌ ${data.message}`, 'error', 5000);
+      } else if (data.type === 'error') {
+        addNotification(data.message, 'error', 5000);
       }
     };
-    
+
     try {
       if (typeof websocketService.onMessage === 'function') {
         const unsubscribe = websocketService.onMessage(handleMessage);
-        return () => { 
+        return () => {
           isMounted = false;
-          if (typeof unsubscribe === 'function') unsubscribe(); 
+          if (typeof unsubscribe === 'function') unsubscribe();
         };
       }
     } catch (error) {
-      console.error('❌ Ошибка подписки на WebSocket сообщения:', error);
+      console.error('Ошибка подписки на WebSocket сообщения:', error);
     }
   }, [selectedChat, user]);
 
   // ===== ПОИСК =====
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
+      // Показываем поиск только если есть запрос
       if (searchQuery.length >= 2) {
         setSearchLoading(true);
         setShowSearchResults(true);
         
         try {
-          const [usersRes, groupsRes] = await Promise.all([
-            fetch(`/api/users/search?q=${searchQuery}`, {
-              headers: { 'X-User-ID': String(user?.id || '') }
-            }),
-            fetch(`/api/groups/search?q=${searchQuery}`, {
-              headers: { 'X-User-ID': String(user?.id || '') }
-            })
-          ]);
+          // Поиск пользователей
+          const usersRes = await fetch(`/api/users/search?q=${searchQuery}`, {
+            headers: { 'X-User-ID': String(user?.id || '') }
+          });
           
           let users = [];
-          let groups = [];
-          
           if (usersRes.ok) {
             users = await usersRes.json();
           }
           
+          // Поиск групп (только если пользователь в них состоит)
+          const groupsRes = await fetch(`/api/groups/search?q=${searchQuery}`, {
+            headers: { 'X-User-ID': String(user?.id || '') }
+          });
+          
+          let groups = [];
           if (groupsRes.ok) {
             groups = await groupsRes.json();
           }
           
+          // Сортируем пользователей: сначала те, с кем есть подписка
           const sortedUsers = users.sort((a, b) => {
             const statusA = subscriptionStatuses[a.id] || 'none';
             const statusB = subscriptionStatuses[b.id] || 'none';
@@ -485,6 +513,7 @@ function Forum() {
             return 0;
           });
           
+          // Объединяем результаты
           const combined = [
             ...sortedUsers.map(u => ({ ...u, _type: 'user' })),
             ...groups.map(g => ({ ...g, _type: 'group' }))
@@ -493,10 +522,13 @@ function Forum() {
           setSearchResults(combined);
           setSearchResultsGroups(groups);
           
+          // Обновляем список пользователей (для других целей)
           setUsers(prev => {
             const updated = [...prev];
             users.forEach(u => {
-              if (!updated.some(existing => existing.id === u.id)) updated.push(u);
+              if (!updated.some(existing => existing.id === u.id)) {
+                updated.push(u);
+              }
             });
             return updated;
           });
@@ -508,10 +540,11 @@ function Forum() {
           setSearchLoading(false);
         }
       } else {
+        // Если запрос меньше 2 символов — скрываем результаты
         setShowSearchResults(false);
         setSearchResults([]);
       }
-    }, 300);
+    }, 300); // Задержка 300ms для debounce
     
     return () => clearTimeout(delayDebounce);
   }, [searchQuery, user, subscriptionStatuses]);
@@ -536,50 +569,102 @@ function Forum() {
     setShareMessage(msg);
     setSelectedContacts([]);
     setShareSearchQuery('');
+    setShareActiveTab('all');
     setShareModalOpen(true);
     closeMessageContextMenu();
   }, [closeMessageContextMenu]);
 
   const toggleContactForShare = useCallback((contactId) => {
-    setSelectedContacts(prev => 
-      prev.includes(contactId) 
+    setSelectedContacts(prev =>
+      prev.includes(contactId)
         ? prev.filter(id => id !== contactId)
         : [...prev, contactId]
     );
   }, []);
 
+  // ===== ПОЛУЧЕНИЕ ВСЕХ КОНТАКТОВ ДЛЯ ПОДЕЛИТЬСЯ =====
+  const getShareableContacts = useCallback(() => {
+    // Все пользователи (кроме текущего)
+    const usersList = selectedUsers
+      .filter(u => !u.isGroup && u.id !== user?.id)
+      .map(u => ({
+        ...u,
+        _type: 'user',
+        displayName: u.name,
+        subtitle: `@${u.username}`,
+        avatar: 'fas fa-user-circle'
+      }));
+
+    // Все группы
+    const groupsList = selectedUsers
+      .filter(u => u.isGroup)
+      .map(g => ({
+        ...g,
+        _type: 'group',
+        displayName: g.name,
+        subtitle: `${g.members?.length || 0} участников`,
+        avatar: 'fas fa-users'
+      }));
+
+    // Объединяем и сортируем по имени
+    return [...usersList, ...groupsList].sort((a, b) =>
+      a.displayName.localeCompare(b.displayName)
+    );
+  }, [selectedUsers, user]);
+
   const handleShareToContacts = useCallback(() => {
     if (!shareMessage || selectedContacts.length === 0) {
-      addNotification('⚠️ Выберите хотя бы один контакт', 'warning', 2000);
+      addNotification(MESSAGES.EMPTY_CONTACTS, 'warning', 2000);
       return;
     }
-    
+
+    let successCount = 0;
+
     selectedContacts.forEach(contactId => {
-      const chatId = `private_${Math.min(user.id, contactId)}_${Math.max(user.id, contactId)}`;
-      
+      // Ищем контакт среди пользователей и групп
+      const contact = selectedUsers.find(u => u.id === contactId);
+      if (!contact) return;
+
+      let chatId;
+      let isGroup = false;
+
+      if (contact.isGroup) {
+        // ✅ Это группа — используем ID группы как chat_id
+        chatId = contact.id;
+        isGroup = true;
+      } else {
+        // Это пользователь — создаём приватный чат
+        chatId = `private_${Math.min(user.id, contact.id)}_${Math.max(user.id, contact.id)}`;
+      }
+
       const shareData = {
         type: 'message',
         text: shareMessage.text || '',
         chat_id: chatId,
         files: shareMessage.files || [],
         is_shared: true,
-        original_sender: shareMessage.username || user.name
+        original_sender: shareMessage.username || user.name,
+        original_chat: shareMessage.chatId || 'unknown',
+        is_group: isGroup  // ✅ Добавляем флаг, что это группа
       };
-      
-      websocketService.sendMessage(shareData);
+
+      if (websocketService.sendMessage(shareData)) {
+        successCount++;
+      }
     });
-    
-    addNotification(`📤 Сообщение отправлено ${selectedContacts.length} получателям`, 'success', 3000);
+
+    addNotification(`Сообщение отправлено ${successCount} получателям`, 'success', 3000);
     setShareModalOpen(false);
     setShareMessage(null);
     setSelectedContacts([]);
-  }, [shareMessage, selectedContacts, user, addNotification]);
+    setShareActiveTab('all');
+  }, [shareMessage, selectedContacts, selectedUsers, user, addNotification]);
 
   // ===== КОПИРОВАТЬ ТЕКСТ =====
   const handleCopyMessage = useCallback((msg) => {
     if (msg.text) {
       navigator.clipboard?.writeText(msg.text).then(() => {
-        addNotification('📋 Текст скопирован', 'success', 2000);
+        addNotification(MESSAGES.COPY_SUCCESS, 'success', 2000);
       }).catch(() => {
         const textarea = document.createElement('textarea');
         textarea.value = msg.text;
@@ -587,7 +672,7 @@ function Forum() {
         textarea.select();
         document.execCommand('copy');
         document.body.removeChild(textarea);
-        addNotification('📋 Текст скопирован', 'success', 2000);
+        addNotification(MESSAGES.COPY_SUCCESS, 'success', 2000);
       });
     }
     closeMessageContextMenu();
@@ -596,7 +681,11 @@ function Forum() {
   // ===== НАЧАТЬ РЕДАКТИРОВАНИЕ =====
   const handleEditMessage = useCallback((msg) => {
     if (msg.userId !== user?.id) return;
-    
+
+    if (replyToMessage) {
+      setReplyToMessage(null);
+    }
+
     setEditingMessage({
       id: msg.id,
       text: msg.text || '',
@@ -605,7 +694,7 @@ function Forum() {
     setNewMessage(msg.text || '');
     inputRef.current?.focus();
     closeMessageContextMenu();
-  }, [user, selectedChat, closeMessageContextMenu]);
+  }, [user, selectedChat, replyToMessage, closeMessageContextMenu]);
 
   // ===== ОТМЕНА РЕДАКТИРОВАНИЯ =====
   const cancelEdit = useCallback(() => {
@@ -617,29 +706,29 @@ function Forum() {
   // ===== ОТПРАВИТЬ РЕДАКТИРОВАНИЕ =====
   const submitEdit = useCallback(() => {
     if (!editingMessage) return;
-    
+
     const newText = newMessage.trim();
     if (!newText || newText === editingMessage.text) {
       cancelEdit();
       return;
     }
-    
+
     const editData = {
       type: 'edit_message',
       message_id: editingMessage.id,
       chat_id: editingMessage.chatId || selectedChat,
       text: newText
     };
-    
+
     if (websocketService.sendMessage(editData)) {
-      setMessages(prev => prev.map(m => 
-        m.id === editingMessage.id 
+      setMessages(prev => prev.map(m =>
+        m.id === editingMessage.id
           ? { ...m, text: newText, edited: true }
           : m
       ));
-      addNotification('✅ Сообщение отредактировано', 'success', 2000);
+      addNotification(MESSAGES.MESSAGE_EDITED, 'success', 2000);
     } else {
-      addNotification('❌ Ошибка редактирования', 'error', 3000);
+      addNotification(MESSAGES.EDIT_ERROR, 'error', 3000);
     }
     cancelEdit();
   }, [editingMessage, newMessage, selectedChat, addNotification, cancelEdit]);
@@ -647,19 +736,19 @@ function Forum() {
   // ===== УДАЛИТЬ СООБЩЕНИЕ =====
   const handleDeleteMessage = useCallback((msg) => {
     if (!msg.id) return;
-    if (!window.confirm('Вы уверены, что хотите удалить это сообщение?')) return;
-    
+    if (!window.confirm(MESSAGES.MESSAGE_DELETE_CONFIRM)) return;
+
     const deleteData = {
       type: 'delete_message',
       message_id: msg.id,
       chat_id: msg.chatId || selectedChat
     };
-    
+
     if (websocketService.sendMessage(deleteData)) {
       setMessages(prev => prev.filter(m => m.id !== msg.id));
-      addNotification('🗑️ Сообщение удалено', 'info', 2000);
+      addNotification(MESSAGES.MESSAGE_DELETED, 'info', 2000);
     } else {
-      addNotification('❌ Ошибка удаления', 'error', 3000);
+      addNotification(MESSAGES.DELETE_ERROR, 'error', 3000);
     }
     closeMessageContextMenu();
   }, [selectedChat, addNotification, closeMessageContextMenu]);
@@ -667,7 +756,12 @@ function Forum() {
   // ===== ОТВЕТИТЬ НА СООБЩЕНИЕ =====
   const handleReplyMessage = useCallback((msg) => {
     if (!msg.id) return;
-    
+
+    if (editingMessage) {
+      setEditingMessage(null);
+      setNewMessage('');
+    }
+
     setReplyToMessage({
       id: msg.id,
       text: msg.text || 'сообщение',
@@ -676,8 +770,8 @@ function Forum() {
     });
     inputRef.current?.focus();
     closeMessageContextMenu();
-    addNotification('💬 Ответ на сообщение', 'info', 2000);
-  }, [addNotification, closeMessageContextMenu]);
+    addNotification(MESSAGES.REPLY_STARTED, 'info', 2000);
+  }, [editingMessage, addNotification, closeMessageContextMenu]);
 
   // ===== ОТМЕНА ОТВЕТА =====
   const cancelReply = useCallback(() => {
@@ -695,27 +789,28 @@ function Forum() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      addNotification(MESSAGES.FILE_UPLOAD_SUCCESS(1), 'success', 2000);
     }
-  }, []);
-
-  const handleForwardFile = useCallback((file) => {
-    addNotification('📤 Функция пересылки будет добавлена позже', 'info', 3000);
   }, [addNotification]);
 
-  const handlePinFile = useCallback((file) => {
-    addNotification('📌 Файл закреплён (в разработке)', 'info', 3000);
+  const handleForwardFile = useCallback(() => {
+    addNotification('Функция пересылки будет добавлена позже', 'info', 3000);
   }, [addNotification]);
 
-  const handleDeleteFile = useCallback((file) => {
-    if (window.confirm('Удалить этот файл из сообщения?')) {
-      addNotification('🗑️ Файл удалён (в разработке)', 'info', 3000);
+  const handlePinFile = useCallback(() => {
+    addNotification('Файл закреплён (в разработке)', 'info', 3000);
+  }, [addNotification]);
+
+  const handleDeleteFile = useCallback(() => {
+    if (window.confirm(MESSAGES.MESSAGE_DELETE_CONFIRM)) {
+      addNotification(MESSAGES.MESSAGE_DELETED, 'info', 3000);
     }
   }, [addNotification]);
 
   // ===== ПРОСМОТР ФОТО/ВИДЕО =====
   const openImageViewer = useCallback((files, index) => {
     const mediaFiles = files.filter(file => {
-      const isImage = file.isImage || 
+      const isImage = file.isImage ||
         (file.type && file.type.startsWith('image/')) ||
         (file.name && /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i.test(file.name));
       const isVideo = file.isVideo ||
@@ -723,9 +818,9 @@ function Forum() {
         (file.name && /\.(mp4|avi|mov|wmv|flv|mkv|webm)$/i.test(file.name));
       return isImage || isVideo;
     });
-    
+
     if (mediaFiles.length === 0) return;
-    
+
     setImageModalFiles(mediaFiles);
     setImageModalIndex(Math.min(index, mediaFiles.length - 1));
     setImageModalOpen(true);
@@ -748,21 +843,25 @@ function Forum() {
   // ===== ОТПРАВКА СООБЩЕНИЯ =====
   const sendMessage = useCallback(async (e) => {
     e.preventDefault();
-    
-    if (!user || !isConnected) return;
-    if (!newMessage.trim() && selectedFiles.length === 0) {
-      addNotification('⚠️ Введите текст или выберите файл', 'warning', 2000);
+
+    if (!user || !isConnected) {
+      addNotification(MESSAGES.NOT_CONNECTED, 'error', 3000);
       return;
     }
-    
+    if (!newMessage.trim() && selectedFiles.length === 0) {
+      addNotification(MESSAGES.EMPTY_MESSAGE, 'warning', 2000);
+      return;
+    }
+
     if (editingMessage) {
       submitEdit();
       return;
     }
-    
+
+    // Если есть файлы
     if (selectedFiles.length > 0) {
       const uploadedFiles = await uploadFiles(selectedFiles);
-      
+
       const messageData = {
         type: 'message',
         text: newMessage.trim() || '',
@@ -778,7 +877,7 @@ function Forum() {
           isAudio: f.isAudio || (f.type && f.type.startsWith('audio/'))
         }))
       };
-      
+
       if (replyToMessage) {
         messageData.reply_to = {
           message_id: replyToMessage.id,
@@ -787,23 +886,29 @@ function Forum() {
           user_id: replyToMessage.userId
         };
       }
+
+      // Отправляем через WebSocket с callback для обработки ответа
+      const result = websocketService.sendMessage(messageData);
       
-      if (websocketService.sendMessage(messageData)) {
+      if (result) {
+        // Очищаем поля сразу после отправки
         setNewMessage('');
         clearFiles();
         setReplyToMessage(null);
+        setEditingMessage(null);
         setUnreadCounts(prev => ({ ...prev, [selectedChat]: 0 }));
-        addNotification(`📤 ${uploadedFiles.length} файлов отправлено`, 'success', 3000);
+        addNotification(MESSAGES.FILE_UPLOAD_SUCCESS(uploadedFiles.length), 'success', 3000);
       }
       return;
     }
-    
+
+    // Только текст
     const messageData = {
       type: 'message',
       text: newMessage.trim(),
       chat_id: selectedChat
     };
-    
+
     if (replyToMessage) {
       messageData.reply_to = {
         message_id: replyToMessage.id,
@@ -812,29 +917,33 @@ function Forum() {
         user_id: replyToMessage.userId
       };
     }
-    
+
     if (currentChat?.type === 'private') {
       messageData.recipient_id = targetUserId;
     }
+
+    // Отправляем через WebSocket с callback для обработки ответа
+    const result = websocketService.sendMessage(messageData);
     
-    if (websocketService.sendMessage(messageData)) {
+    if (result) {
       setNewMessage('');
       setReplyToMessage(null);
+      setEditingMessage(null);
       setUnreadCounts(prev => ({ ...prev, [selectedChat]: 0 }));
     } else {
-      addNotification('❌ Ошибка отправки', 'error', 3000);
+      addNotification(MESSAGES.SEND_ERROR, 'error', 3000);
     }
   }, [user, isConnected, newMessage, selectedFiles, selectedChat, currentChat, targetUserId, uploadFiles, clearFiles, addNotification, editingMessage, submitEdit, replyToMessage]);
 
-  // ===== КОНТЕКСТНОЕ МЕНЮ ДЛЯ ЧАТА =====
+// ===== КОНТЕКСТНОЕ МЕНЮ ДЛЯ ЧАТА =====
   const handleContextMenu = useCallback((e, chat) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (chat.id === 'general') return;
-    
+
     const isCreator = chat.type === 'group' && chat.creatorId === user?.id;
-    
+
     setContextMenu({
       chatId: chat.id,
       chatName: chat.name,
@@ -869,7 +978,7 @@ function Forum() {
       setPinnedChats(newPinned);
       localStorage.setItem('pinnedChats', JSON.stringify(newPinned));
     }
-    
+
     if (customChatNames[chatId]) {
       const newNames = { ...customChatNames };
       delete newNames[chatId];
@@ -881,7 +990,7 @@ function Forum() {
       setSelectedChat('general');
     }
     setContextMenu(null);
-    addNotification('🗑️ Чат удален из списка', 'info', 3000);
+    addNotification('Чат удален из списка', 'info', 3000);
   }, [contextMenu, selectedUsers, user, pinnedChats, customChatNames, selectedChat, addNotification]);
 
   const handleTogglePin = useCallback(() => {
@@ -891,13 +1000,16 @@ function Forum() {
       const newPinned = pinnedChats.filter(id => id !== chatId);
       setPinnedChats(newPinned);
       localStorage.setItem('pinnedChats', JSON.stringify(newPinned));
-      addNotification('📌 Чат откреплён', 'info', 2000);
+      addNotification(MESSAGES.CHAT_UNPINNED, 'info', 2000);
     } else {
-      if (pinnedChats.length >= 5) return addNotification('⚠️ Максимум 5 чатов', 'warning', 3000);
+      if (pinnedChats.length >= 5) {
+        addNotification(MESSAGES.MAX_PINNED, 'warning', 3000);
+        return;
+      }
       const newPinned = [...pinnedChats, chatId];
       setPinnedChats(newPinned);
       localStorage.setItem('pinnedChats', JSON.stringify(newPinned));
-      addNotification('📌 Чат закреплён', 'success', 2000);
+      addNotification(MESSAGES.CHAT_PINNED, 'success', 2000);
     }
     setContextMenu(null);
   }, [contextMenu, pinnedChats, addNotification]);
@@ -913,12 +1025,12 @@ function Forum() {
     e.preventDefault();
     if (!showRenameModal) return;
     const trimmed = newChatName.trim();
-    if (!trimmed) return addNotification('❌ Имя не может быть пустым', 'error', 3000);
-    
+    if (!trimmed) return addNotification(MESSAGES.RENAME_ERROR, 'error', 3000);
+
     const updated = { ...customChatNames, [showRenameModal]: trimmed };
     setCustomChatNames(updated);
     localStorage.setItem('customChatNames', JSON.stringify(updated));
-    addNotification('✅ Чат переименован', 'success', 2000);
+    addNotification(MESSAGES.RENAME_SUCCESS, 'success', 2000);
     setShowRenameModal(null);
     setNewChatName('');
   }, [showRenameModal, newChatName, customChatNames, addNotification]);
@@ -928,30 +1040,30 @@ function Forum() {
     if (!user) return;
     const group = selectedUsers.find(u => u.isGroup && u.id === groupId);
     if (!group) return;
-    if (!window.confirm(`Вы уверены, что хотите выйти из группы "${group.name}"?`)) return;
-    
+    if (!window.confirm(MESSAGES.GROUP_LEAVE_CONFIRM(group.name))) return;
+
     try {
       await del(`/api/groups/${groupId}/remove-member`, {
         'X-User-ID': String(user.id)
       });
-      
+
       const updated = selectedUsers.filter(u => u.id !== groupId);
       setSelectedUsers(updated);
       localStorage.setItem('userChats', JSON.stringify(updated));
-      
+
       if (pinnedChats.includes(groupId)) {
         const newPinned = pinnedChats.filter(id => id !== groupId);
         setPinnedChats(newPinned);
         localStorage.setItem('pinnedChats', JSON.stringify(newPinned));
       }
-      
+
       if (selectedChat === groupId) {
         setSelectedChat('general');
       }
-      
-      addNotification(`👋 Вы вышли из группы "${group.name}"`, 'info', 3000);
+
+      addNotification(MESSAGES.GROUP_LEFT(group.name), 'info', 3000);
     } catch (error) {
-      addNotification(`❌ ${error.message || 'Ошибка выхода из группы'}`, 'error', 4000);
+      addNotification(MESSAGES.GROUP_LEAVE_ERROR, 'error', 4000);
     }
   }, [user, selectedUsers, pinnedChats, selectedChat, addNotification]);
 
@@ -960,47 +1072,47 @@ function Forum() {
     const group = selectedUsers.find(u => u.isGroup && u.id === groupId);
     if (!group) return;
     if (group.creatorId !== user.id) {
-      addNotification('❌ Только создатель может удалить группу', 'error', 3000);
+      addNotification('Только создатель может удалить группу', 'error', 3000);
       return;
     }
-    if (!window.confirm(`Вы уверены, что хотите удалить группу "${group.name}"? Это действие необратимо!`)) return;
-    
+    if (!window.confirm(MESSAGES.GROUP_DELETE_CONFIRM)) return;
+
     try {
       await del(`/api/groups/${groupId}`, {
         'X-User-ID': String(user.id)
       });
-      
+
       const updated = selectedUsers.filter(u => u.id !== groupId);
       setSelectedUsers(updated);
       localStorage.setItem('userChats', JSON.stringify(updated));
-      
+
       if (pinnedChats.includes(groupId)) {
         const newPinned = pinnedChats.filter(id => id !== groupId);
         setPinnedChats(newPinned);
         localStorage.setItem('pinnedChats', JSON.stringify(newPinned));
       }
-      
+
       if (selectedChat === groupId) {
         setSelectedChat('general');
       }
-      
-      addNotification(`🗑️ Группа "${group.name}" удалена`, 'info', 3000);
+
+      addNotification(MESSAGES.GROUP_DELETED(group.name), 'info', 3000);
     } catch (error) {
-      addNotification(`❌ ${error.message || 'Ошибка удаления группы'}`, 'error', 4000);
+      addNotification(MESSAGES.GROUP_DELETE_ERROR, 'error', 4000);
     }
   }, [user, selectedUsers, pinnedChats, selectedChat, addNotification]);
 
   const handleCreateGroupSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!newGroupName.trim()) {
-      return addNotification('❌ Введите название группы', 'error', 3000);
+      return addNotification(MESSAGES.EMPTY_GROUP_NAME, 'error', 3000);
     }
     if (selectedGroupMembers.length === 0) {
-      return addNotification('❌ Выберите хотя бы одного участника', 'error', 3000);
+      return addNotification(MESSAGES.EMPTY_GROUP_MEMBERS, 'error', 3000);
     }
 
     try {
-      const newGroup = await post('/api/groups/create', 
+      const newGroup = await post('/api/groups/create',
         {
           name: newGroupName.trim(),
           member_ids: selectedGroupMembers.map(u => u.id)
@@ -1011,22 +1123,22 @@ function Forum() {
       const updatedChats = [...selectedUsers, newGroup];
       setSelectedUsers(updatedChats);
       localStorage.setItem('userChats', JSON.stringify(updatedChats));
-      
-      const sysMsg1 = { 
-        type: 'message', 
-        text: `Группа "${newGroup.name}" создана`, 
-        chat_id: newGroup.id, 
-        is_system: true 
+
+      const sysMsg1 = {
+        type: 'message',
+        text: `Группа "${newGroup.name}" создана`,
+        chat_id: newGroup.id,
+        is_system: true
       };
       websocketService.sendMessage(sysMsg1);
 
       selectedGroupMembers.forEach(member => {
         const memberUser = users.find(u => u.id === member);
         const sysMsg2 = {
-          type: 'message', 
-          text: `${user.name} добавил(а) ${memberUser ? memberUser.name : 'пользователя'} в группу`, 
-          chat_id: newGroup.id, 
-          is_system: true 
+          type: 'message',
+          text: `${user.name} добавил(а) ${memberUser ? memberUser.name : 'пользователя'} в группу`,
+          chat_id: newGroup.id,
+          is_system: true
         };
         websocketService.sendMessage(sysMsg2);
       });
@@ -1036,46 +1148,89 @@ function Forum() {
       setActionMenuPos(null);
       setNewGroupName('');
       setSelectedGroupMembers([]);
-      
-      addNotification(`✅ Группа "${newGroup.name}" создана!`, 'success', 3000);
+
+      addNotification(MESSAGES.GROUP_CREATED(newGroup.name), 'success', 3000);
     } catch (error) {
-      addNotification(`❌ ${error.message || 'Ошибка создания группы'}`, 'error', 5000);
+      addNotification(MESSAGES.GROUP_CREATE_ERROR, 'error', 5000);
     }
   }, [user, newGroupName, selectedGroupMembers, selectedUsers, users, addNotification]);
 
   // ===== ДОБАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯ =====
   const handleAddUser = useCallback(async (selectedUser) => {
     if (selectedUser.id === user?.id) return;
+
+    // Проверяем, есть ли уже в чатах
+    const alreadyExists = selectedUsers.some(u => u.id === selectedUser.id);
     
-    if (!selectedUsers.some(u => u.id === selectedUser.id)) {
+    // Добавляем пользователя в список чатов
+    if (!alreadyExists) {
       const updated = [...selectedUsers, selectedUser];
       setSelectedUsers(updated);
       localStorage.setItem('userChats', JSON.stringify(updated));
+      addNotification(`Чат с ${selectedUser.name} добавлен`, 'success', 3000);
     }
-    
+
+    // Открываем чат
     const chatId = `private_${Math.min(user.id, selectedUser.id)}_${Math.max(user.id, selectedUser.id)}`;
     setSelectedChat(chatId);
+    setSearchQuery('');
+    setShowSearchResults(false);
     setShowAddUserModal(false);
-    
+
     try {
+      // Проверяем статус подписки
       const statusData = await get(`/api/users/subscriptions/status/${selectedUser.id}`, {
         'X-User-ID': String(user.id)
       });
       
-      if (statusData.status === 'none') {
-        await post('/api/users/subscribe', 
+      const currentStatus = statusData.status || 'none';
+      setSubscriptionStatuses(prev => ({ ...prev, [selectedUser.id]: currentStatus }));
+
+      // Если подписки нет — отправляем запрос
+      if (currentStatus === 'none') {
+        await post('/api/users/subscribe',
           { following_id: selectedUser.id },
           { 'X-User-ID': String(user.id) }
         );
         setSubscriptionStatuses(prev => ({ ...prev, [selectedUser.id]: 'pending' }));
-      } else {
-        setSubscriptionStatuses(prev => ({ ...prev, [selectedUser.id]: statusData.status }));
+        addNotification(`Запрос на подписку отправлен пользователю ${selectedUser.name}`, 'info', 3000);
+      } else if (currentStatus === 'pending') {
+        addNotification(`Запрос на подписку уже отправлен пользователю ${selectedUser.name}`, 'info', 3000);
+      } else if (currentStatus === 'approved') {
+        addNotification(`Вы уже подписаны на ${selectedUser.name}`, 'success', 3000);
+      } else if (currentStatus === 'rejected') {
+        // Если был отклонён — пробуем снова
+        await post('/api/users/subscribe',
+          { following_id: selectedUser.id },
+          { 'X-User-ID': String(user.id) }
+        );
+        setSubscriptionStatuses(prev => ({ ...prev, [selectedUser.id]: 'pending' }));
+        addNotification(`Запрос на подписку отправлен повторно пользователю ${selectedUser.name}`, 'info', 3000);
       }
     } catch (error) {
       console.error('Ошибка подписки:', error);
-      addNotification('❌ Ошибка при подписке', 'error');
+      // Показываем понятную ошибку
+      if (error.response && error.response.data && error.response.data.detail) {
+        addNotification(`Ошибка: ${error.response.data.detail}`, 'error', 4000);
+      } else {
+        addNotification(MESSAGES.SUBSCRIPTION_ERROR, 'error');
+      }
     }
   }, [user, selectedUsers, addNotification]);
+
+  // ===== АВТО-СКРОЛЛ ПРИ НОВЫХ СООБЩЕНИЯХ =====
+  useEffect(() => {
+    if (messageListRef.current) {
+      messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  // Добавьте после setSelectedChat
+  useEffect(() => {
+    if (messageListRef.current) {
+      messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
+    }
+  }, [selectedChat]);
 
   // ===== ВЫХОД =====
   const handleLogout = useCallback(() => {
@@ -1107,14 +1262,21 @@ function Forum() {
     const chatMessages = messages
       .filter(m => m.chatId === selectedChat)
       .sort((a, b) => {
+        // ✅ Сортировка по времени + ID для стабильности
         const timeA = new Date(a.timestamp).getTime();
         const timeB = new Date(b.timestamp).getTime();
+        
+        // Сначала по времени (старые сверху)
         if (timeA !== timeB) return timeA - timeB;
-        return String(a.id).localeCompare(String(b.id));
+        
+        // Если время одинаковое, сортируем по ID (числовое сравнение)
+        const idA = parseInt(a.id) || 0;
+        const idB = parseInt(b.id) || 0;
+        return idA - idB;
       });
 
     if (chatMessages.length === 0) {
-      return <div className="chat-empty"><i className="fas fa-comment-dots"></i><p>Сообщений пока нет</p></div>;
+      return <div className="chat-empty"><i className="fas fa-comment-dots"></i><p>{MESSAGES.NO_MESSAGES}</p></div>;
     }
 
     let lastDate = '';
@@ -1125,32 +1287,35 @@ function Forum() {
       const isOwn = msg.userId === user?.id;
       const isSystem = msg.isSystem;
 
+      const isForwarded = msg.forward && msg.forward.is_shared;
+      const forwardSender = isForwarded ? msg.forward.original_sender : null;
+      const forwardText = isForwarded ? msg.forward.original_text : null;
+
       return (
         <React.Fragment key={msg.id || index}>
           {showDate && <div className="chat-date-divider"><span>{msgDate}</span></div>}
-          
-          <div 
+
+          <div
             className={`chat-message ${isOwn ? 'own' : ''} ${isSystem ? 'system' : ''} ${highlightedMessageId === msg.id ? 'highlighted' : ''}`}
             data-message-id={msg.id}
           >
             {!isOwn && !isSystem && <div className="chat-message-avatar"><i className="fas fa-user-circle"></i></div>}
             <div className="chat-message-content">
               <div className="chat-message-bubble" style={{ position: 'relative' }}>
-                
-                {/* Кнопки при наведении */}
+
                 {!isSystem && (
                   <div className={`message-hover-actions ${isOwn ? 'own' : ''}`}>
-                    <button 
+                    <button
                       className="message-hover-btn message-share-btn"
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        openShareModal(msg); 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openShareModal(msg);
                       }}
                       title="Поделиться"
                     >
                       <i className="fas fa-share-alt"></i>
                     </button>
-                    <button 
+                    <button
                       className="message-hover-btn message-menu-btn"
                       onClick={(e) => handleMessageMenuToggle(e, msg)}
                       title="Ещё"
@@ -1165,21 +1330,20 @@ function Forum() {
                     {msg.username || msg.name}
                   </Link>
                 )}
-                
+
                 <div className="chat-message-text">
-                  {/* БЛОК ОТВЕТА (цитата) */}
                   {msg.reply_to && (
-                    <div 
+                    <div
                       className="message-reply-quote"
                       onClick={() => {
                         const replyMsgId = msg.reply_to.message_id;
                         setHighlightedMessageId(replyMsgId);
-                        
+
                         const element = document.querySelector(`[data-message-id="${replyMsgId}"]`);
                         if (element) {
                           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         }
-                        
+
                         setTimeout(() => {
                           setHighlightedMessageId(null);
                         }, 3000);
@@ -1192,54 +1356,67 @@ function Forum() {
                       <div className="reply-quote-text">{msg.reply_to.text}</div>
                     </div>
                   )}
-                  
-                  {msg.text && <div className="message-text-content">{msg.text}</div>}
-                  
-                  {/* ФАЙЛЫ */}
+
+                  {isForwarded && (
+                    <div className="message-forward-block">
+                      <div className="forward-header">
+                        <span className="forward-label">Переслано от:</span>
+                        <span className="forward-sender">{forwardSender}</span>
+                      </div>
+                      <div className="forward-content">
+                        {forwardText || msg.text}
+                      </div>
+                    </div>
+                  )}
+
+                  {msg.text && !isForwarded && <div className="message-text-content">{msg.text}</div>}
+
                   {msg.files && msg.files.length > 0 && (
                     <div className="message-files">
                       {msg.files.map((file, idx) => {
-                        const fileUrl = getFileUrl(file);
+                        if (file._type === 'forward_metadata') return null;
                         
-                        const isImage = 
-                          file.isImage === true || 
+                        const fileUrl = getFileUrl(file);
+
+                        const isImage =
+                          file.isImage === true ||
                           (file.type && file.type.startsWith('image/')) ||
                           (file.name && /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i.test(file.name)) ||
                           (file.originalName && /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i.test(file.originalName));
-                        
-                        const isVideo = 
+
+                        const isVideo =
                           file.isVideo === true ||
                           (file.type && file.type.startsWith('video/')) ||
                           (file.name && /\.(mp4|avi|mov|wmv|flv|mkv|webm)$/i.test(file.name));
-                        
-                        const isAudio = 
+
+                        const isAudio =
                           file.isAudio === true ||
                           (file.type && file.type.startsWith('audio/')) ||
                           (file.name && /\.(mp3|wav|flac|aac|ogg|wma)$/i.test(file.name));
-                        
+
                         if (isImage) {
                           const imgSrc = file.preview || fileUrl;
                           return (
-                            <div 
-                              key={idx} 
-                              className="message-file-image" 
+                            <div
+                              key={idx}
+                              className="message-file-image"
                               onClick={() => openImageViewer(msg.files, idx)}
                             >
-                              <img 
-                                src={imgSrc} 
-                                alt="" 
+                              <img
+                                src={imgSrc}
+                                alt=""
                                 className="message-image-thumb"
                                 loading="lazy"
                                 crossOrigin="anonymous"
                                 onError={(e) => {
-                                  console.error('❌ Ошибка загрузки фото:', imgSrc);
+                                  console.error('Ошибка загрузки фото:', imgSrc);
                                   e.target.src = imgSrc.replace(/%20/g, ' ');
                                 }}
                               />
                             </div>
                           );
                         }
-                        
+
                         if (isVideo) {
                           return (
                             <div key={idx} className="message-file-video">
@@ -1249,7 +1426,7 @@ function Forum() {
                             </div>
                           );
                         }
-                        
+
                         if (isAudio) {
                           return (
                             <div key={idx} className="message-file-audio">
@@ -1259,7 +1436,7 @@ function Forum() {
                             </div>
                           );
                         }
-                        
+
                         return (
                           <div key={idx} className="message-file">
                             <i className="fas fa-file"></i>
@@ -1272,12 +1449,12 @@ function Forum() {
                       })}
                     </div>
                   )}
-                  
+
                   {!msg.text && (!msg.files || msg.files.length === 0) && (
                     <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>пустое сообщение</span>
                   )}
                 </div>
-                
+
                 <div className="chat-message-time">{formatTime(msg.timestamp)}</div>
               </div>
             </div>
@@ -1294,23 +1471,23 @@ function Forum() {
   // ===== ЗАКРЫТИЕ КОНТЕКСТНОГО МЕНЮ ПО КЛИКУ ВНЕ =====
   useEffect(() => {
     if (!messageContextMenu) return;
-    
+
     const handleClickOutside = (e) => {
       const menu = document.querySelector('.message-context-menu');
       if (menu && !menu.contains(e.target)) {
         closeMessageContextMenu();
       }
     };
-    
+
     const handleScroll = () => {
       closeMessageContextMenu();
     };
-    
+
     const timeoutId = setTimeout(() => {
       document.addEventListener('click', handleClickOutside);
       document.addEventListener('scroll', handleScroll, true);
     }, 50);
-    
+
     return () => {
       clearTimeout(timeoutId);
       document.removeEventListener('click', handleClickOutside);
@@ -1337,11 +1514,102 @@ function Forum() {
 
         {showSearchResults && searchQuery.length >= 2 && (
           <div className="search-results-dropdown">
-            {searchLoading && <div className="search-loading">Поиск...</div>}
-            {searchResults.length === 0 && !searchLoading && (
+            {searchLoading && (
+              <div className="search-loading">
+                <i className="fas fa-spinner fa-spin"></i> Поиск...
+              </div>
+            )}
+            
+            {!searchLoading && searchResults.length === 0 && (
               <div className="search-empty">
                 <i className="fas fa-search"></i>
-                <p>Ничего не найдено</p>
+                <p>Пользователей не найдено</p>
+              </div>
+            )}
+            
+            {!searchLoading && searchResults.length > 0 && (
+              <div className="search-results-list">
+                {searchResults.map(item => {
+                  const isGroup = item._type === 'group';
+                  const isApproved = subscriptionStatuses[item.id] === 'approved';
+                  const isPending = subscriptionStatuses[item.id] === 'pending';
+                  const isNone = !subscriptionStatuses[item.id] || subscriptionStatuses[item.id] === 'none';
+                  
+                  // Пропускаем себя
+                  if (!isGroup && item.id === user?.id) return null;
+                  
+                  // Проверяем, есть ли уже в чатах
+                  const isInChats = selectedUsers.some(u => u.id === item.id);
+                  
+                  return (
+                    <div 
+                      key={item.id} 
+                      className="search-result-item"
+                      onClick={() => {
+                        if (isGroup) {
+                          // Если это группа
+                          if (!isInChats) {
+                            const updated = [...selectedUsers, item];
+                            setSelectedUsers(updated);
+                            localStorage.setItem('userChats', JSON.stringify(updated));
+                            setSelectedChat(item.id);
+                            setSearchQuery('');
+                            setShowSearchResults(false);
+                          }
+                        } else {
+                          // Если это пользователь
+                          handleAddUser(item);
+                          setSearchQuery('');
+                          setShowSearchResults(false);
+                        }
+                      }}
+                    >
+                      <div className="search-result-info">
+                        <div className={`search-result-avatar ${isGroup ? 'group-avatar' : ''}`}>
+                          <i className={isGroup ? 'fas fa-users' : 'fas fa-user-circle'}></i>
+                        </div>
+                        <div className="search-result-details">
+                          <div className="search-result-username">
+                            {isGroup ? item.name : item.username}
+                            {isGroup && (
+                              <span className="search-result-group-badge">Группа</span>
+                            )}
+                          </div>
+                          <div className="search-result-name">
+                            {isGroup 
+                              ? `${item.memberCount || 0} участников`
+                              : item.name
+                            }
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="search-result-actions">
+                        {isInChats ? (
+                          <span className="search-result-btn btn-subscribed">
+                            <i className="fas fa-check"></i> В чатах
+                          </span>
+                        ) : isGroup ? (
+                          <span className="search-result-btn btn-add">
+                            <i className="fas fa-plus"></i> Добавить
+                          </span>
+                        ) : isApproved ? (
+                          <span className="search-result-btn btn-subscribed">
+                            <i className="fas fa-check"></i> Подписан
+                          </span>
+                        ) : isPending ? (
+                          <span className="search-result-btn btn-pending">
+                            <i className="fas fa-clock"></i> Ожидает
+                          </span>
+                        ) : (
+                          <span className="search-result-btn btn-subscribe">
+                            <i className="fas fa-user-plus"></i> Подписаться
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1461,7 +1729,7 @@ function Forum() {
                 {groupInfoTab === 'media' && (
                   <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
                     <i className="fas fa-images" style={{ fontSize: '2.5rem', marginBottom: '12px', display: 'block', opacity: 0.5 }}></i>
-                    <p>В этой группе пока нет общих медиафайлов</p>
+                    <p>{MESSAGES.NO_MEDIA}</p>
                   </div>
                 )}
                 {groupInfoTab === 'admins' && (
@@ -1536,14 +1804,14 @@ function Forum() {
             <i className={`fas ${contextMenu.isPinned ? 'fa-times' : 'fa-thumbtack'}`} style={{ fontSize: '0.9rem', color: '#7c3aed', width: '18px', textAlign: 'center' }}></i>
             <span>{contextMenu.isPinned ? 'Открепить' : 'Закрепить'}</span>
           </div>
-          
+
           {(contextMenu.type === 'private' || (contextMenu.type === 'group' && contextMenu.isCreator)) && (
             <div className="context-menu-item" onClick={handleOpenRenameModal} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1a1a2e', transition: '0.2s', fontWeight: 500 }}>
               <i className="fas fa-pen" style={{ fontSize: '0.9rem', color: '#3b82f6', width: '18px', textAlign: 'center' }}></i>
               <span>Переименовать</span>
             </div>
           )}
-          
+
           {contextMenu.isGroup && (
             <>
               {!contextMenu.isCreator && (
@@ -1568,7 +1836,7 @@ function Forum() {
               )}
             </>
           )}
-          
+
           {contextMenu.type === 'private' && (
             <div className="context-menu-item delete" onClick={handleDeleteChat} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#ef4444', transition: '0.2s', fontWeight: 500 }}>
               <i className="fas fa-trash" style={{ fontSize: '0.9rem', color: '#ef4444', width: '18px', textAlign: 'center' }}></i>
@@ -1628,7 +1896,7 @@ function Forum() {
                   </div>
                 ))}
                 {users.filter(u => u.id !== user?.id && !selectedUsers.some(su => su.id === u.id) && (u.name.toLowerCase().includes(searchUser.toLowerCase()) || u.username.toLowerCase().includes(searchUser.toLowerCase()))).length === 0 && (
-                  <div className="modal-empty"><p>Нет доступных пользователей</p></div>
+                  <div className="modal-empty"><p>{MESSAGES.NO_CONTACTS}</p></div>
                 )}
               </div>
             </div>
@@ -1646,7 +1914,7 @@ function Forum() {
             </div>
             <div className="modal-body">
               {pendingSubscriptions.length === 0 ? (
-                <div className="modal-empty"><p>Нет новых уведомлений</p></div>
+                <div className="modal-empty"><p>{MESSAGES.NO_NOTIFICATIONS}</p></div>
               ) : (
                 <div className="notification-list">
                   {pendingSubscriptions.map(sub => (
@@ -1692,14 +1960,14 @@ function Forum() {
                 {currentChat?.type === 'private' && (
                   <>
                     {isUserOnline(targetUserId) ? (
-                      <span style={{ color: '#22c55e', fontWeight: 500 }}> Онлайн</span>
+                      <span style={{ color: '#22c55e', fontWeight: 500 }}> {MESSAGES.ONLINE}</span>
                     ) : (
-                      <span style={{ color: '#94a3b8' }}> Офлайн</span>
+                      <span style={{ color: '#94a3b8' }}> {MESSAGES.OFFLINE}</span>
                     )}
                   </>
                 )}
                 {currentChat?.type === 'group' && (
-                  <> 👥 {currentChat?.members?.length || 0} участников</>
+                  <>  {currentChat?.members?.length || 0} участников</>
                 )}
                 {currentChat?.type === 'public' && (
                   <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}> Общий чат</span>
@@ -1791,15 +2059,19 @@ function Forum() {
                   <i className="fas fa-paperclip"></i>
                 </button>
                 <input type="file" ref={fileInputRef} multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.7z,.txt,.mp3,.wav,.flac,.mp4,.avi,.mov,.png,.jpg,.jpeg,.gif,.svg" style={{ display: 'none' }} onChange={handleFileSelect} disabled={isUploading} />
-                <input 
-                  ref={inputRef} 
-                  type="text" 
-                  className="chat-input" 
-                  placeholder={editingMessage ? 'Редактирование сообщения...' : replyToMessage ? 'Введите ответ...' : (selectedFiles.length > 0 ? 'Добавить текст к файлам...' : 'Введите сообщение...')} 
-                  value={newMessage} 
+                <input
+                  ref={inputRef}
+                  type="text"
+                  className="chat-input"
+                  placeholder={
+                    editingMessage ? 'Редактирование сообщения...' :
+                      replyToMessage ? 'Введите ответ...' :
+                        (selectedFiles.length > 0 ? 'Добавить текст к файлам...' : 'Введите сообщение...')
+                  }
+                  value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyDown={() => sendTyping()}
-                  disabled={!isConnected || isUploading} 
+                  disabled={!isConnected || isUploading}
                 />
                 <button type="submit" className="chat-send-btn" disabled={(!newMessage.trim() && selectedFiles.length === 0) || !isConnected || isUploading}>
                   {editingMessage ? <i className="fas fa-check"></i> : (isUploading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>)}
@@ -1824,13 +2096,13 @@ function Forum() {
       {/* РАЗРЕШЕНИЕ НА УВЕДОМЛЕНИЯ */}
       {showBrowserPermission && (
         <div className="browser-notification-permission">
-          <h4>🔔 Включить уведомления?</h4>
+          <h4>Включить уведомления?</h4>
           <div className="btn-group">
             <button className="btn-allow-notifications" onClick={() => {
               if ('Notification' in window) {
                 Notification.requestPermission().then(permission => {
                   setShowBrowserPermission(false);
-                  if (permission === 'granted') addNotification('✅ Уведомления включены!', 'success');
+                  if (permission === 'granted') addNotification('Уведомления включены', 'success');
                 });
               }
             }}>Включить</button>
@@ -1858,20 +2130,25 @@ function Forum() {
       {/* МОДАЛЬНОЕ ОКНО ПОДЕЛИТЬСЯ */}
       {shareModalOpen && (
         <div className="modal-overlay" onClick={() => setShareModalOpen(false)}>
-          <div className="modal-content share-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '450px' }}>
+          <div className="modal-content share-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
             <div className="modal-header">
               <h3><i className="fas fa-share-alt"></i> Поделиться</h3>
               <button className="modal-close" onClick={() => setShareModalOpen(false)}>
                 <i className="fas fa-times"></i>
               </button>
             </div>
-            
-            <div className="modal-body" style={{ padding: '16px 20px', maxHeight: '400px', overflowY: 'auto' }}>
+
+            <div className="modal-body" style={{ padding: '16px 20px', maxHeight: '450px', overflowY: 'auto' }}>
               {/* Превью сообщения */}
               <div className="share-message-preview">
                 <div className="share-message-sender">
                   <i className="fas fa-user-circle"></i>
                   <span>{shareMessage?.username || user?.name}</span>
+                  {shareMessage?.chatId && shareMessage.chatId !== 'general' && (
+                    <span style={{ fontSize: '0.7rem', color: '#94a3b8', marginLeft: '8px' }}>
+                      <i className="fas fa-arrow-right"></i> из чата
+                    </span>
+                  )}
                 </div>
                 <div className="share-message-text">
                   {shareMessage?.text || 'Сообщение без текста'}
@@ -1883,77 +2160,144 @@ function Forum() {
                   </div>
                 )}
               </div>
-              
-              {/* Поиск контактов */}
+
+              {/* Вкладки */}
+              <div className="share-tabs">
+                <button 
+                  className={`share-tab ${shareActiveTab === 'all' ? 'active' : ''}`}
+                  onClick={() => setShareActiveTab('all')}
+                >
+                  <i className="fas fa-list"></i> Все
+                </button>
+                <button 
+                  className={`share-tab ${shareActiveTab === 'private' ? 'active' : ''}`}
+                  onClick={() => setShareActiveTab('private')}
+                >
+                  <i className="fas fa-user"></i> Личные
+                </button>
+                <button 
+                  className={`share-tab ${shareActiveTab === 'groups' ? 'active' : ''}`}
+                  onClick={() => setShareActiveTab('groups')}
+                >
+                  <i className="fas fa-users"></i> Группы
+                </button>
+              </div>
+
+              {/* Поиск */}
               <div className="share-search">
                 <i className="fas fa-search"></i>
-                <input 
-                  type="text" 
-                  placeholder="Поиск контактов..." 
+                <input
+                  type="text"
+                  placeholder="Поиск контактов и групп..."
                   value={shareSearchQuery}
                   onChange={(e) => setShareSearchQuery(e.target.value)}
                 />
               </div>
-              
+
               {/* Список контактов */}
               <div className="share-contact-list">
-                {selectedUsers
-                  .filter(u => u.id !== user?.id)
-                  .filter(u => 
-                    u.name.toLowerCase().includes(shareSearchQuery.toLowerCase()) ||
-                    (u.username && u.username.toLowerCase().includes(shareSearchQuery.toLowerCase()))
-                  )
-                  .map(contact => {
-                    const isSelected = selectedContacts.includes(contact.id);
-                    const isMutual = mutualSubscriptions[contact.id] || subscriptionStatuses[contact.id] === 'approved';
-                    
+                {(() => {
+                  const allContacts = getShareableContacts();
+                  
+                  let filtered = allContacts;
+                  if (shareActiveTab === 'private') {
+                    filtered = filtered.filter(c => c._type === 'user');
+                  } else if (shareActiveTab === 'groups') {
+                    filtered = filtered.filter(c => c._type === 'group');
+                  }
+                  
+                  if (shareSearchQuery.trim()) {
+                    const query = shareSearchQuery.toLowerCase().trim();
+                    filtered = filtered.filter(c =>
+                      c.displayName.toLowerCase().includes(query) ||
+                      (c.username && c.username.toLowerCase().includes(query))
+                    );
+                  }
+
+                  if (filtered.length === 0) {
                     return (
-                      <div 
-                        key={contact.id} 
+                      <div className="share-empty">
+                        <p>{shareSearchQuery ? 'Ничего не найдено' : 'Нет доступных контактов'}</p>
+                      </div>
+                    );
+                  }
+
+                  return filtered.map(contact => {
+                    const isSelected = selectedContacts.includes(contact.id);
+                    const isGroup = contact._type === 'group';
+
+                    return (
+                      <div
+                        key={contact.id}
                         className={`share-contact-item ${isSelected ? 'selected' : ''}`}
                         onClick={() => toggleContactForShare(contact.id)}
                       >
                         <div className="share-contact-info">
-                          <div className="share-contact-avatar">
-                            <i className="fas fa-user-circle"></i>
+                          <div className="share-contact-avatar" style={{ 
+                            background: isGroup ? '#ede9fe' : '#e2e8f0',
+                            color: isGroup ? '#7c3aed' : '#7c3aed'
+                          }}>
+                            <i className={contact.avatar || (isGroup ? 'fas fa-users' : 'fas fa-user-circle')}></i>
                           </div>
                           <div className="share-contact-details">
-                            <div className="share-contact-name">{contact.name}</div>
-                            <div className="share-contact-username">@{contact.username}</div>
+                            <div className="share-contact-name">
+                              {contact.displayName}
+                              {isGroup && (
+                                <span style={{ 
+                                  fontSize: '0.6rem', 
+                                  color: '#7c3aed', 
+                                  background: '#ede9fe', 
+                                  padding: '1px 8px', 
+                                  borderRadius: '10px',
+                                  marginLeft: '8px',
+                                  fontWeight: 600
+                                }}>
+                                  ГРУППА
+                                </span>
+                              )}
+                            </div>
+                            <div className="share-contact-username">
+                              {isGroup 
+                                ? `${contact.members?.length || 0} участников`
+                                : `@${contact.username}`
+                              }
+                            </div>
                           </div>
                         </div>
-                        {!isMutual && (
-                          <span className="share-contact-status">❌</span>
-                        )}
                         <div className={`share-checkbox ${isSelected ? 'checked' : ''}`}>
                           {isSelected && <i className="fas fa-check"></i>}
                         </div>
                       </div>
                     );
-                  })}
-                
-                {selectedUsers.filter(u => u.id !== user?.id).length === 0 && (
-                  <div className="share-empty">
-                    <p>Нет доступных контактов</p>
-                  </div>
-                )}
+                  });
+                })()}
               </div>
-              
+
               {/* Выбранные контакты */}
               {selectedContacts.length > 0 && (
                 <div className="share-selected-count">
-                  Выбрано: <strong>{selectedContacts.length}</strong> контактов
+                  Выбрано: <strong>{selectedContacts.length}</strong> получателей
+                  <span style={{ marginLeft: '12px', fontSize: '0.8rem', color: '#94a3b8' }}>
+                    {selectedContacts.filter(id => {
+                      const contact = selectedUsers.find(u => u.id === id);
+                      return contact?.isGroup;
+                    }).length} групп, 
+                    {selectedContacts.filter(id => {
+                      const contact = selectedUsers.find(u => u.id === id);
+                      return contact && !contact.isGroup;
+                    }).length} пользователей
+                  </span>
                 </div>
               )}
             </div>
-            
+
             <div className="modal-footer" style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <button className="btn-cancel" onClick={() => setShareModalOpen(false)} style={{ padding: '10px 20px', background: '#f1f5f9', border: 'none', borderRadius: '10px', color: '#64748b', fontWeight: 600, cursor: 'pointer' }}>
                 Отмена
               </button>
-              <button 
-                className="btn-submit" 
-                onClick={handleShareToContacts} 
+              <button
+                className="btn-submit"
+                onClick={handleShareToContacts}
                 disabled={selectedContacts.length === 0}
                 style={{ padding: '10px 20px', background: selectedContacts.length === 0 ? '#94a3b8' : '#7c3aed', border: 'none', borderRadius: '10px', color: 'white', fontWeight: 600, cursor: selectedContacts.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
@@ -1966,8 +2310,8 @@ function Forum() {
 
       {/* КОНТЕКСТНОЕ МЕНЮ ДЛЯ СООБЩЕНИЯ */}
       {messageContextMenu && (
-        <div 
-          className="message-context-menu" 
+        <div
+          className="message-context-menu"
           style={{
             position: 'fixed',
             top: Math.min(messageContextMenu.y, window.innerHeight - 220),
@@ -1980,26 +2324,26 @@ function Forum() {
             <i className="fas fa-share-alt"></i>
             <span>Поделиться</span>
           </div>
-          
+
           <div className="message-context-menu-item" onClick={() => handleCopyMessage(messageContextMenu.message)}>
             <i className="fas fa-copy"></i>
             <span>Копировать текст</span>
           </div>
-          
+
           <div className="message-context-menu-item" onClick={() => handleReplyMessage(messageContextMenu.message)}>
             <i className="fas fa-reply"></i>
             <span>Ответить</span>
           </div>
-          
+
           <div className="message-context-menu-divider"></div>
-          
+
           {messageContextMenu.message.userId === user?.id && (
             <>
               <div className="message-context-menu-item" onClick={() => handleEditMessage(messageContextMenu.message)}>
                 <i className="fas fa-pen"></i>
                 <span>Редактировать</span>
               </div>
-              
+
               <div className="message-context-menu-item message-context-menu-item-danger" onClick={() => handleDeleteMessage(messageContextMenu.message)}>
                 <i className="fas fa-trash"></i>
                 <span>Удалить</span>
