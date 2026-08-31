@@ -1,19 +1,44 @@
+"""
+База данных DubPar
+"""
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-import os
-from dotenv import load_dotenv
+from contextlib import contextmanager
+import logging
 
-load_dotenv()
+from .config import get_settings
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://dubpar:dubpar_password@database:5432/dubpar")
+logger = logging.getLogger(__name__)
 
-engine = create_engine(DATABASE_URL)
+settings = get_settings()
+
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+@contextmanager
+def get_db_context():
+    """Контекстный менеджер для сессии БД"""
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def get_db():
+    """Зависимость FastAPI для получения сессии БД"""
     db = SessionLocal()
     try:
         yield db
