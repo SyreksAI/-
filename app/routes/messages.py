@@ -1,14 +1,17 @@
+# app/routes/messages.py
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from ..database import get_db
 from ..schemas import MessageResponse, MessageCreate
 from ..models import Message, User
+from app.redis_client import cache, invalidate_cache
 
 router = APIRouter()
 
 
 @router.get("/history/{chat_id}")
+@cache(ttl=300, key_prefix="chat_history")
 async def get_chat_history(
     chat_id: str,
     limit: int = 100,
@@ -54,6 +57,7 @@ async def get_chat_history(
 
 
 @router.get("/chat/{chat_id}")
+@cache(ttl=300, key_prefix="chat_messages_by_chat")
 async def get_messages_by_chat(
     chat_id: str,
     limit: int = 50,
@@ -108,7 +112,6 @@ async def create_message(
     
     current_user_id = x_user_id if x_user_id else 1
     
-    # Обработка reply_to
     reply_to_id = None
     if message.reply_to:
         reply_to_id = message.reply_to.get("message_id")
@@ -130,7 +133,9 @@ async def create_message(
     
     sender = db.query(User).filter(User.id == new_message.user_id).first()
     
-    # Формируем reply_to для ответа
+    await invalidate_cache(f"chat_history:{message.chat_id}*")
+    await invalidate_cache(f"chat_messages_by_chat:{message.chat_id}*")
+    
     reply_to_response = None
     if new_message.reply_to:
         reply_sender = db.query(User).filter(User.id == new_message.reply_to.user_id).first()

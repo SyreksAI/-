@@ -40,7 +40,7 @@ function AdminLogin() {
           {/* ЛОГОТИП */}
           
           <div className="auth-logo">
-            <img src="/logo.png" alt="ДубльПар.ru" className="auth-logo-img" />
+            <img src="/logo.png" alt="ДубльПар.рф" className="auth-logo-img" />
           </div>
           <div className="admin-login-icon">
             <i className="fas fa-shield-alt"></i>

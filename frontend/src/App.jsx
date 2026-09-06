@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, Navigate, useNavigate } from 'react-router-dom';
-import { get } from './utils/api';
+import { get, post } from './utils/api';
 import AdminPanel from './pages/AdminPanel';
 import AdminUsers from './pages/AdminUsers';
 import AdminSettings from './pages/AdminSettings';
@@ -10,43 +10,194 @@ import Register from './pages/Register';
 import Profile from './pages/Profile';
 import Forum from './pages/Forum';
 import './static/master.scss';
+import AdminModules from './pages/AdminModules';
+import Privacy from './pages/Privacy';
+import Support from './pages/Support';
+import AdminSupport from './pages/AdminSupport';
+import useActivityTracker from './hooks/useActivityTracker';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+import YandexAd from './components/YandexAd';
 
-// Компонент для защиты пользовательских маршрутов
+
+// ===== ЗАЩИТА ДЛЯ ПОЛЬЗОВАТЕЛЬСКИХ МАРШРУТОВ =====
+const parseStoredJson = (key) => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
 const ProtectedRoute = ({ children }) => {
-  const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+  const currentUser = parseStoredJson('currentUser');
   if (!currentUser) {
     return <Navigate to="/login" />;
   }
   return children;
 };
 
-// Компонент для защиты админ-маршрутов (ТОЛЬКО АДМИН-СЕССИЯ!)
+// ===== ЗАЩИТА ДЛЯ АДМИН-МАРШРУТОВ =====
 const AdminRoute = ({ children }) => {
-  const adminSession = JSON.parse(localStorage.getItem('adminSession'));
+  const adminSession = parseStoredJson('adminSession');
   if (!adminSession || !adminSession.loggedIn) {
     return <Navigate to="/admin/login" />;
   }
   return children;
 };
 
-function HomePage({ categories, settings }) {
+// ===== ЗАЩИТА ДЛЯ ПУБЛИЧНЫХ СТРАНИЦ (если пользователь уже авторизован) =====
+const PublicRoute = ({ children }) => {
+  const currentUser = parseStoredJson('currentUser');
+  if (currentUser) {
+    return <Navigate to="/" />;
+  }
+  return children;
+};
+
+// ===== КОМПОНЕНТ ГЛАВНОЙ СТРАНИЦЫ =====
+function HomePage({ settings, setSettings }) {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState(null);
   const [activeTopic, setActiveTopic] = useState(null);
   const [selectedContent, setSelectedContent] = useState(null);
   const [breadcrumbs, setBreadcrumbs] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [topicsMap, setTopicsMap] = useState({});
+  const [loading, setLoading] = useState(true);
   
-  const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+  // ===== СОСТОЯНИЯ ДЛЯ КОММЕНТАРИЕВ =====
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [showCommentsModal, setShowCommentsModal] = useState(false);
+  
+  const currentUser = parseStoredJson('currentUser');
+
+  // 👈 ДОБАВЛЯЕМ ТРЕКЕР АКТИВНОСТИ
+  useActivityTracker();
+
+  // ✅ ЗАГРУЗКА НАСТРОЕК ИЗ БД
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const data = await get('/api/settings/');
+        if (data && Object.keys(data).length > 0) {
+          setSettings(prev => ({ ...prev, ...data }));
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки настроек:', error);
+      }
+    };
+    loadSettings();
+  }, [setSettings]);
+
+  // ✅ Загружаем категории и темы из БД
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const cats = await get('/api/study/technologies');
+        setCategories(cats);
+        
+        const topics = {};
+        for (const cat of cats) {
+          topics[cat.id] = cat.topics || [];
+        }
+        setTopicsMap(topics);
+      } catch (error) {
+        console.error('Ошибка загрузки данных:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  // ===== ЗАГРУЗКА КОММЕНТАРИЕВ =====
+  const loadComments = async (topicId, subtopicId) => {
+    setLoadingComments(true);
+    try {
+      let url = '/api/comments/';
+      if (subtopicId) {
+        url += `subtopic/${subtopicId}`;
+      } else if (topicId) {
+        url += `topic/${topicId}`;
+      } else {
+        setLoadingComments(false);
+        return;
+      }
+      const data = await get(url);
+      setComments(data || []);
+    } catch (error) {
+      console.error('Ошибка загрузки комментариев:', error);
+      setComments([]);
+    } finally {
+      setLoadingComments(false);
+    }
+  };
+
+  // ===== ОТПРАВКА КОММЕНТАРИЯ =====
+  const handleAddComment = async (e) => {
+    e.preventDefault();
+    if (!newComment.trim()) return;
+    
+    if (!currentUser) {
+      alert('Войдите, чтобы оставить комментарий');
+      return;
+    }
+
+    try {
+      const commentData = {
+        content: newComment.trim()
+      };
+      
+      if (selectedContent?.type === 'subtopic') {
+        commentData.subtopic_id = selectedContent.id;
+      } else if (selectedContent?.type === 'topic') {
+        commentData.topic_id = selectedContent.id;
+      } else {
+        alert('Неизвестный тип контента');
+        return;
+      }
+      
+      await post('/api/comments/', commentData, {
+        'X-User-ID': String(currentUser.id)
+      });
+      
+      setNewComment('');
+      
+      const topicId = selectedContent?.type === 'topic' ? selectedContent.id : null;
+      const subtopicId = selectedContent?.type === 'subtopic' ? selectedContent.id : null;
+      loadComments(topicId, subtopicId);
+      
+    } catch (error) {
+      console.error('Ошибка отправки комментария:', error);
+      alert('Ошибка отправки комментария: ' + (error.message || ''));
+    }
+  };
+
+  // ===== ПРИ ВЫБОРЕ КОНТЕНТА ЗАГРУЖАЕМ КОММЕНТАРИИ =====
+  useEffect(() => {
+    if (selectedContent) {
+      const topicId = selectedContent?.type === 'topic' ? selectedContent.id : null;
+      const subtopicId = selectedContent?.type === 'subtopic' ? selectedContent.id : null;
+      loadComments(topicId, subtopicId);
+    }
+  }, [selectedContent]);
 
   // Фильтрация
-  const filteredCategories = categories.map(cat => ({
-    ...cat,
-    topics: cat.topics.filter(topic => 
-      topic.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      cat.name.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  })).filter(cat => cat.topics.length > 0 || searchTerm === '');
+  const filteredCategories = categories
+    .map(cat => {
+      const topics = (topicsMap[cat.id] || []).filter(topic =>
+        topic.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        cat.name.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      return { ...cat, topics };
+    })
+    .filter(cat => cat.topics.length > 0 || searchTerm === '');
 
   const toggleCategory = (name) => {
     if (activeCategory === name) {
@@ -68,10 +219,11 @@ function HomePage({ categories, settings }) {
 
   const handleSelectTopic = (categoryName, topic) => {
     setSelectedContent({
+      id: topic.id,
       type: 'topic',
       title: topic.title,
-      description: topic.description || 'Описание отсутствует',
-      technologies: topic.technologies || []
+      description: topic.content || topic.description || 'Описание отсутствует',
+      technologies: [categoryName]
     });
     setBreadcrumbs([
       { name: categoryName, type: 'category' },
@@ -84,6 +236,7 @@ function HomePage({ categories, settings }) {
 
   const handleSelectSubTopic = (categoryName, topicTitle, subtopic) => {
     setSelectedContent({
+      id: subtopic.id,
       type: 'subtopic',
       title: subtopic.title,
       description: subtopic.description || 'Описание отсутствует',
@@ -100,11 +253,57 @@ function HomePage({ categories, settings }) {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('currentUser');
-    navigate('/');
-    window.location.reload();
-  };
+  // ===== ПРОВЕРКА СТАТУСА ПОЛЬЗОВАТЕЛЯ ПРИ ЗАГРУЗКЕ =====
+  useEffect(() => {
+    const checkUserStatus = async () => {
+      const currentUser = parseStoredJson('currentUser');
+      if (!currentUser) return;
+      
+      try {
+        const userData = await get(`/api/users/${currentUser.id}`, {
+          'X-User-ID': String(currentUser.id)
+        });
+        
+        if (userData.is_banned) {
+          alert('⛔ Ваш аккаунт был заблокирован. Для разблокировки обратитесь к администратору.');
+          localStorage.removeItem('currentUser');
+          window.location.href = '/login';
+        }
+      } catch (error) {
+        console.error('Ошибка проверки статуса:', error);
+      }
+    };
+    
+    checkUserStatus();
+  }, []);
+
+  // Показываем загрузку
+  if (loading) {
+    return (
+      <div className="home-container">
+        <div className="left_container">
+          <div className="header">
+            <img className='logo' src={settings?.logoUrl || '/logo.png'} alt="logo" />
+          </div>
+          <div style={{ padding: '40px', textAlign: 'center' }}>
+            <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', color: '#7c3aed' }}></i>
+            <p style={{ color: '#94a3b8', marginTop: '12px' }}>Загрузка...</p>
+          </div>
+        </div>
+        <div className="main_content">
+          <div className="content_area">
+            <div className="content-empty-state">
+              <i className="fas fa-spinner fa-spin"></i>
+              <h3>Загрузка данных...</h3>
+            </div>
+          </div>
+          <div className="right_sidebar" style={{ width: '300px', flexShrink: 0 }}>
+            <YandexAd blockId="R-A-19991905-1" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="home-container">
@@ -125,20 +324,20 @@ function HomePage({ categories, settings }) {
 
         <div className="main_menu">
           <Link to="/forum" className="forum-menu-item">
-              <i className="fas fa-comments"></i> 
-              <span>Forum разработчиков</span>
+            <i className="fas fa-comments"></i> 
+            <span>Forum разработчиков</span>
           </Link>
           <div className="catalog-title">
             <i className="fas fa-book"></i> Каталог технологий
           </div>
           
-          {filteredCategories.map((category, index) => (
-            <div key={index} className="category-item">
+          {filteredCategories.map((category) => (
+            <div key={category.id} className="category-item">
               <div 
                 className={`category-header ${activeCategory === category.name ? 'active' : ''}`}
                 onClick={() => toggleCategory(category.name)}
               >
-                <i className={`${category.icon} category-icon`}></i>
+                <i className={`${category.icon || 'fas fa-folder'} category-icon`}></i>
                 <span className="category-name">{category.name}</span>
                 <span className="topic-count">{category.topics.length} тем</span>
                 <i className={`fas fa-chevron-${activeCategory === category.name ? 'down' : 'right'} category-arrow`}></i>
@@ -146,10 +345,10 @@ function HomePage({ categories, settings }) {
               
               {activeCategory === category.name && (
                 <div className="topics-list">
-                  {category.topics.map((topic, idx) => {
+                  {category.topics.map((topic) => {
                     const hasSubtopics = topic.subtopics && topic.subtopics.length > 0;
                     return (
-                      <div key={idx} className="topic-item-wrapper">
+                      <div key={topic.id} className="topic-item-wrapper">
                         <div 
                           className={`topic-header ${activeTopic === topic.title ? 'active' : ''}`}
                           onClick={() => {
@@ -158,7 +357,7 @@ function HomePage({ categories, settings }) {
                             }
                             handleSelectTopic(category.name, topic);
                           }}
-                          style={{ cursor: 'pointer' }}
+                          style={{ cursor: hasSubtopics ? 'pointer' : 'default' }}
                         >
                           <i className="fas fa-circle topic-dot"></i>
                           <span className="topic-title">{topic.title}</span>
@@ -172,9 +371,9 @@ function HomePage({ categories, settings }) {
 
                         {activeTopic === topic.title && hasSubtopics && (
                           <div className="subtopics-list">
-                            {topic.subtopics.map((subtopic, subIdx) => (
+                            {topic.subtopics.map((subtopic) => (
                               <div 
-                                key={subIdx} 
+                                key={subtopic.id} 
                                 className="subtopic-item"
                                 onClick={() => handleSelectSubTopic(category.name, topic.title, subtopic)}
                               >
@@ -198,7 +397,7 @@ function HomePage({ categories, settings }) {
           ))}
         </div>
 
-        <div className="footer" to="/profile">
+        <div className="footer">
           {currentUser ? (
             <>
               <img src="/user_logo_one.png" alt="user_logo_one" className="user_logo" />
@@ -219,147 +418,149 @@ function HomePage({ categories, settings }) {
         </div>
       </div>
 
-      <div className="right_content">
-        {selectedContent ? (
-          <div className="content-viewer">
-            <div className="content-breadcrumbs">
-              {breadcrumbs.map((crumb, index) => (
-                <span key={index}>
-                  {index > 0 && <span className="breadcrumb-separator"> / </span>}
-                  <span className={`breadcrumb-${crumb.type}`}>
-                    {crumb.name}
+      <div className="main_content">
+        <div className="content_area">
+          {selectedContent ? (
+            <div className="content-viewer">
+              <div className="content-breadcrumbs">
+                {breadcrumbs.map((crumb, index) => (
+                  <span key={index}>
+                    {index > 0 && <span className="breadcrumb-separator"> / </span>}
+                    <span className={`breadcrumb-${crumb.type}`}>
+                      {crumb.name}
+                    </span>
                   </span>
-                </span>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            <div className="content-header">
-              <div className="content-badge">
-                {selectedContent.parentTopic && (
-                  <span className="content-parent"> в {selectedContent.parentTopic}</span>
+              <div className="content-header">
+                <div className="content-header-top">
+                  <h2 className="content-title">{selectedContent.title}</h2>
+                  {settings.enableComments !== false && (
+                    <button 
+                      className="comments-toggle-btn"
+                      onClick={() => setShowCommentsModal(true)}
+                      title="Комментарии"
+                    >
+                      <i className="fas fa-comment"></i>
+                      <span className="comments-count">{comments.length}</span>
+                    </button>
+                  )}
+                </div>
+                {selectedContent.technologies && selectedContent.technologies.length > 0 && (
+                  <div className="content-techs">
+                    {selectedContent.technologies.map((tech, i) => (
+                      <span key={i} className="tech-tag">{tech}</span>
+                    ))}
+                  </div>
                 )}
               </div>
-              <h2 className="content-title">{selectedContent.title}</h2>
-              {selectedContent.technologies && selectedContent.technologies.length > 0 && (
-                <div className="content-techs">
-                  {selectedContent.technologies.map((tech, i) => (
-                    <span key={i} className="tech-tag">{tech}</span>
-                  ))}
+              <div className="content-body">
+                {selectedContent.description ? (
+                  <div dangerouslySetInnerHTML={{ __html: selectedContent.description }} />
+                ) : (
+                  <p className="content-empty">Описание отсутствует</p>
+                )}
+              </div>
+
+              {/* ===== МОДАЛЬНОЕ ОКНО КОММЕНТАРИЕВ ===== */}
+              {showCommentsModal && (
+                <div className="comments-modal-overlay" onClick={() => setShowCommentsModal(false)}>
+                  <div className="comments-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="comments-modal-header">
+                      <h3>
+                        <i className="fas fa-comments"></i> 
+                        Комментарии ({comments.length})
+                      </h3>
+                      <button className="comments-modal-close" onClick={() => setShowCommentsModal(false)}>
+                        <i className="fas fa-times"></i>
+                      </button>
+                    </div>
+                    
+                    <div className="comments-modal-body">
+                      {/* ФОРМА ДЛЯ КОММЕНТАРИЯ */}
+                      {currentUser ? (
+                        <form className="comment-form" onSubmit={handleAddComment}>
+                          <textarea
+                            className="comment-input"
+                            placeholder="Напишите комментарий..."
+                            value={newComment}
+                            onChange={(e) => setNewComment(e.target.value)}
+                            rows="2"
+                          />
+                          <button type="submit" className="btn-submit" disabled={!newComment.trim()}>
+                            <i className="fas fa-paper-plane"></i> Отправить
+                          </button>
+                        </form>
+                      ) : (
+                        <div className="comment-login-hint">
+                          <Link to="/login" onClick={() => setShowCommentsModal(false)}>Войдите</Link>, чтобы оставить комментарий
+                        </div>
+                      )}
+
+                      {/* СПИСОК КОММЕНТАРИЕВ */}
+                      {loadingComments ? (
+                        <div className="comments-loading">
+                          <i className="fas fa-spinner fa-spin"></i> Загрузка...
+                        </div>
+                      ) : comments.length > 0 ? (
+                        <div className="comments-list">
+                          {comments.map(comment => (
+                            <div key={comment.id} className="comment-item">
+                              <div className="comment-avatar">
+                                <i className="fas fa-user-circle"></i>
+                              </div>
+                              <div className="comment-content">
+                                <div className="comment-author">
+                                  {comment.author?.name || comment.author?.username || 'Пользователь'}
+                                  <span className="comment-date">
+                                    {new Date(comment.created_at).toLocaleDateString('ru-RU', {
+                                      day: '2-digit',
+                                      month: '2-digit',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </span>
+                                </div>
+                                <div className="comment-text">{comment.content}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="comments-empty">
+                          <p>Нет комментариев. Будьте первым! 😊</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
-            <div className="content-body">
-              {selectedContent.description ? (
-                <div dangerouslySetInnerHTML={{ __html: selectedContent.description }} />
-              ) : (
-                <p className="content-empty">Описание отсутствует</p>
-              )}
+          ) : (
+            <div className="content-empty-state">
+              <i className="fas fa-hand-pointer"></i>
+              <h3>Выберите тему или подтему</h3>
+              <p>Нажмите на тему или подтему слева, чтобы увидеть её содержание</p>
             </div>
-          </div>
-        ) : (
-          <div className="content-empty-state">
-            <i className="fas fa-hand-pointer"></i>
-            <h3>Выберите тему или подтему</h3>
-            <p>Нажмите на тему или подтему слева, чтобы увидеть её содержание</p>
-          </div>
-        )}
+          )}
+        </div>
+        <div className="right_sidebar" style={{ width: '300px', flexShrink: 0 }}>
+          <YandexAd blockId="R-A-19991905-1" />
+        </div>
       </div>
     </div>
   );
 }
 
+// ===== ГЛАВНЫЙ КОМПОНЕНТ APP =====
 function App() {
-  // ===== ОБЩИЙ СТЕЙТ ДЛЯ КАТЕГОРИЙ =====
-  const [categories, setCategories] = useState([
-    {
-      id: 1,
-      name: 'Python',
-      icon: 'fab fa-python',
-      topics: [
-        { 
-          id: 1, 
-          title: 'FastAPI', 
-          technologies: ['Python'], 
-          description: 'Современный веб-фреймворк для Python. Позволяет быстро создавать REST API с минимальным количеством кода.',
-          subtopics: [
-            { id: 101, title: 'GET запросы', description: 'Обработка GET запросов в FastAPI. GET используется для получения данных с сервера.' },
-            { id: 102, title: 'POST запросы', description: 'Обработка POST запросов в FastAPI. POST используется для создания новых данных на сервере.' },
-            { id: 103, title: 'PUT запросы', description: 'Обработка PUT запросов в FastAPI. PUT используется для полного обновления данных.' }
-          ]
-        },
-        { 
-          id: 2, 
-          title: 'Django', 
-          technologies: ['Python'], 
-          description: 'Полноценный веб-фреймворк для Python. Включает всё необходимое для разработки крупных проектов.',
-          subtopics: [
-            { id: 201, title: 'Модели', description: 'Работа с моделями в Django. Модели описывают структуру данных в базе.' },
-            { id: 202, title: 'Представления', description: 'Контроллеры в Django. Представления обрабатывают запросы и возвращают ответы.' }
-          ]
-        },
-      ]
-    },
-    {
-      id: 2,
-      name: 'C++',
-      icon: 'fas fa-code',
-      topics: [
-        { 
-          id: 3, 
-          title: 'STL', 
-          technologies: ['C++'], 
-          description: 'Стандартная библиотека шаблонов C++. Предоставляет готовые структуры данных и алгоритмы.',
-          subtopics: [
-            { id: 301, title: 'Векторы', description: 'Работа с векторами в STL. Вектор — динамический массив, который может изменять свой размер.' },
-            { id: 302, title: 'Списки', description: 'Работа со списками в STL. Список — двунаправленный связанный список.' }
-          ]
-        },
-      ]
-    },
-    {
-      id: 3,
-      name: 'C#',
-      icon: 'fas fa-shield-alt',
-      topics: [
-        { 
-          id: 4, 
-          title: 'ASP.NET Core', 
-          technologies: ['C#'], 
-          description: 'Веб-фреймворк для C#. Позволяет создавать современные веб-приложения и API.',
-          subtopics: [
-            { id: 401, title: 'Контроллеры', description: 'Работа с контроллерами в ASP.NET Core. Контроллеры обрабатывают HTTP-запросы.' },
-            { id: 402, title: 'Middleware', description: 'Промежуточное ПО в ASP.NET Core. Обрабатывает запросы и ответы на разных этапах.' }
-          ]
-        },
-      ]
-    },
-    {
-      id: 4,
-      name: 'Docker',
-      icon: 'fab fa-docker',
-      topics: [
-        { 
-          id: 5, 
-          title: 'Docker Compose', 
-          technologies: ['Docker'], 
-          description: 'Инструмент для запуска многоконтейнерных приложений. Позволяет описывать и запускать все сервисы в одном файле.',
-          subtopics: [
-            { id: 501, title: 'docker-compose.yml', description: 'Основной файл конфигурации Docker Compose. Описывает все сервисы, сети и тома.' },
-            { id: 502, title: 'Сети в Compose', description: 'Настройка сетей в Docker Compose. Позволяет контейнерам общаться друг с другом.' }
-          ]
-        },
-      ]
-    }
-  ]);
-
-  // ===== НАСТРОЙКИ =====
   const [settings, setSettings] = useState({
-    siteName: 'ДубльПар.ru',
+    siteName: 'ДубльПар.рф',
     siteDescription: 'Образовательный проект по РПО',
     logoUrl: '/logo.png',
     primaryColor: '#7c3aed',
-    theme: 'light',
-    language: 'ru',
     registrationEnabled: true,
     maintenanceMode: false,
     enableComments: true,
@@ -370,16 +571,23 @@ function App() {
     systemNotifications: true
   });
 
+  const [categories, setCategories] = useState([]);
+
   useEffect(() => {
     const loadCategories = async () => {
       try {
-        const data = await get('/api/categories/');
-        if (data.length > 0) {
+        const data = await get('/api/study/technologies');
+        if (data && data.length > 0) {
           setCategories(data);
         }
       } catch (error) {
-        console.error('Ошибка загрузки категорий:', error);
-        // Используем локальные данные как fallback
+        console.error('Ошибка загрузки категорий для админки:', error);
+        setCategories([
+          { id: 1, name: 'Python', icon: 'fab fa-python', topics: [] },
+          { id: 2, name: 'C++', icon: 'fas fa-code', topics: [] },
+          { id: 3, name: 'C#', icon: 'fas fa-shield-alt', topics: [] },
+          { id: 4, name: 'Docker', icon: 'fab fa-docker', topics: [] }
+        ]);
       }
     };
     loadCategories();
@@ -399,11 +607,34 @@ function App() {
   return (
     <div className="app">
       <Routes>
-        <Route path="/" element={<HomePage categories={categories} settings={settings} />} />
-        <Route path="/forum" element={<Forum />} />
+        {/* 🔒 ЗАЩИЩЁННЫЕ МАРШРУТЫ (только для авторизованных) */}
+        <Route path="/" element={
+          <ProtectedRoute>
+            <HomePage settings={settings} setSettings={setSettings} />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/forum" element={
+          <ProtectedRoute>
+            <Forum />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/profile/:userId?" element={
+          <ProtectedRoute>
+            <Profile />
+          </ProtectedRoute>
+        } />
+
+        {/* 🔓 ПУБЛИЧНЫЕ МАРШРУТЫ (доступны без авторизации) */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/profile/:userId?" element={<Profile />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/support" element={<Support />} />
+        <Route path="/terms" element={<Privacy />} />
+        <Route path="/about" element={<Privacy />} />
+
+        {/* 🔐 АДМИН-МАРШРУТЫ */}
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin" element={
           <AdminRoute>
@@ -420,11 +651,29 @@ function App() {
             <AdminSettings settings={settings} setSettings={setSettings} />
           </AdminRoute>
         } />
+        <Route path="/admin/modules" element={
+          <AdminRoute>
+            <AdminModules />
+          </AdminRoute>
+        } />
+        <Route path="/admin/support" element={
+          <AdminRoute>
+            <AdminSupport />
+          </AdminRoute>
+        } />
+
+        {/* 👇 НОВЫЕ МАРШРУТЫ ВНУТРИ <Routes>! */}
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+
+        {/* ДОПОЛНИТЕЛЬНЫЕ СТРАНИЦЫ */}
         <Route path="/topic/:language/:topic" element={
-          <div className="topic-page">
-            <button className="btn-back" onClick={() => window.history.back()}>← Назад</button>
-            <h1>Страница темы</h1>
-          </div>
+          <ProtectedRoute>
+            <div className="topic-page">
+              <button className="btn-back" onClick={() => window.history.back()}>← Назад</button>
+              <h1>Страница темы</h1>
+            </div>
+          </ProtectedRoute>
         } />
       </Routes>
     </div>

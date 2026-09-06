@@ -32,7 +32,7 @@ function Login() {
       <div className="auth-container">
         <div className="auth-header">
           <div className="auth-logo">
-            <img src="/logo.png" alt="ДубльПар.ru" className="auth-logo-img" />
+            <img src="/logo.png" alt="ДубльПар.рф" className="auth-logo-img" />
           </div>
           <h1>Вход в систему</h1>
           <p>Войдите в свой аккаунт для продолжения</p>
@@ -61,6 +61,11 @@ function Login() {
               required
             />
           </div>
+          <div className="form-group" style={{ textAlign: 'right' }}>
+            <Link to="/forgot-password" style={{ fontSize: '0.85rem', color: '#7c3aed' }}>
+              Забыли пароль?
+            </Link>
+          </div>
           <button type="submit" className="btn-submit" disabled={loading}>
             {loading ? (
               <i className="fas fa-spinner fa-spin"></i>
@@ -73,6 +78,20 @@ function Login() {
 
         <div className="auth-footer">
           <p>Нет аккаунта? <Link to="/register">Зарегистрироваться</Link></p>
+        </div>
+
+        <div className="auth-footer-links">
+          <Link to="/privacy">Конфиденциальность</Link>
+          <span className="footer-divider">•</span>
+          <Link to="/terms">Условия использования</Link>
+          <span className="footer-divider">•</span>
+          <Link to="/support">Поддержка</Link>
+          <span className="footer-divider">•</span>
+          <Link to="/about">О проекте</Link>
+        </div>
+
+        <div className="auth-copyright">
+          © 2026 ДубльПар.рф. Все права защищены компанией SyrekAI.
         </div>
       </div>
     </div>

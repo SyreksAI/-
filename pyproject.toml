@@ -9,6 +9,7 @@ package-mode = false
 [tool.poetry.dependencies]
 python = ">=3.11,<3.14"
 fastapi = "^0.115.0"
+starlette = "^0.46.0"
 uvicorn = {extras = ["standard"], version = "^0.34.0"}
 sqlalchemy = "^2.0.36"
 python-jose = {extras = ["cryptography"], version = "^3.3.0"}
@@ -19,6 +20,8 @@ python-dotenv = "^1.0.0"
 pydantic-settings = "^2.7.0"
 email-validator = "^2.0.0"
 websockets = "^17.0.0"
+requests = "^2.34.2"
+redis = "^5.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.3"

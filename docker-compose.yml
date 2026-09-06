@@ -30,6 +30,16 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+  
+  redis:
+    image: redis:7-alpine
+    container_name: dubpar-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
 
   backend:
     build:
@@ -49,6 +59,10 @@ services:
     depends_on:
       database:
         condition: service_healthy
+    dns:
+    - 8.8.8.8
+    - 1.1.1.1
 
 volumes:
   postgres_data:
+  redis_data:

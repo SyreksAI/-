@@ -30,11 +30,16 @@ export function useChat(user, selectedChat, setMessages) {
           text: msg.text,
           isSystem: msg.is_system || msg.isSystem || false,
           timestamp: msg.timestamp,
-          files: msg.files || []
+          files: msg.files || [],
+          order: msg.order || 0  // ✅ ДОБАВЛЕНО!
         }));
         setMessages(prev => {
           const existingIds = new Set(prev.map(m => m.id));
-          return [...prev, ...normalized.filter(msg => !existingIds.has(msg.id))];
+          const newMessages = normalized.filter(msg => !existingIds.has(msg.id));
+          const all = [...prev, ...newMessages];
+          // ✅ Сортировка по order
+          all.sort((a, b) => (a.order || 0) - (b.order || 0));
+          return all;
         });
       }
     } catch (error) {
@@ -129,10 +134,18 @@ export function useChat(user, selectedChat, setMessages) {
         text: rawMsg.text,
         isSystem: rawMsg.is_system || rawMsg.isSystem || false,
         timestamp: rawMsg.timestamp,
-        files: rawMsg.files || []
+        files: rawMsg.files || [],
+        order: rawMsg.order || 0,  // ✅ ДОБАВЛЕНО!
+        reply_to: rawMsg.reply_to || null
       };
       
-      setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+      setMessages(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev;
+        const updated = [...prev, msg];
+        // ✅ Сортировка по order
+        updated.sort((a, b) => (a.order || 0) - (b.order || 0));
+        return updated;
+      });
 
       if (data.type === 'new_message' && msg.chatId !== selectedChat && msg.userId !== user?.id) {
         setUnreadCounts(prev => ({ ...prev, [msg.chatId]: (prev[msg.chatId] || 0) + 1 }));

@@ -409,9 +409,24 @@ function Forum() {
           isSystem: rawMsg.is_system || rawMsg.isSystem || false,
           timestamp: rawMsg.timestamp,
           files: rawMsg.files || [],
-          reply_to: rawMsg.reply_to || null
+          reply_to: rawMsg.reply_to || null,
+          order: rawMsg.order || 0
         };
-        setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
+        setMessages(prev => {
+          if (prev.some(m => m.id === msg.id)) return prev;
+          const updated = [...prev, msg];
+          // ✅ Сортируем по order
+          updated.sort((a, b) => {
+            if (a.order !== undefined && b.order !== undefined) {
+              return (a.order || 0) - (b.order || 0);
+            }
+            const timeA = new Date(a.timestamp).getTime();
+            const timeB = new Date(b.timestamp).getTime();
+            if (timeA !== timeB) return timeA - timeB;
+            return (parseInt(a.id) || 0) - (parseInt(b.id) || 0);
+          });
+          return updated;
+        });
 
         if (data.type === 'new_message' && msg.chatId !== selectedChat && msg.userId !== user?.id) {
           setUnreadCounts(prev => ({ ...prev, [msg.chatId]: (prev[msg.chatId] || 0) + 1 }));
@@ -1259,25 +1274,22 @@ function Forum() {
 
   // ===== РЕНДЕР СООБЩЕНИЙ =====
   const renderMessages = useCallback(() => {
-    const chatMessages = messages
-      .filter(m => m.chatId === selectedChat)
-      .sort((a, b) => {
-        // ✅ Сортировка по времени + ID для стабильности
-        const timeA = new Date(a.timestamp).getTime();
-        const timeB = new Date(b.timestamp).getTime();
-        
-        // Сначала по времени (старые сверху)
-        if (timeA !== timeB) return timeA - timeB;
-        
-        // Если время одинаковое, сортируем по ID (числовое сравнение)
-        const idA = parseInt(a.id) || 0;
-        const idB = parseInt(b.id) || 0;
-        return idA - idB;
-      });
-
-    if (chatMessages.length === 0) {
-      return <div className="chat-empty"><i className="fas fa-comment-dots"></i><p>{MESSAGES.NO_MESSAGES}</p></div>;
-    }
+      const chatMessages = messages
+        .filter(m => m.chatId === selectedChat)
+        .sort((a, b) => {
+          // ✅ Строго по order
+          const orderA = a.order !== undefined ? a.order : 0;
+          const orderB = b.order !== undefined ? b.order : 0;
+          if (orderA !== orderB) return orderA - orderB;
+          
+          // Если order одинаковый (не должно быть), то по времени
+          const timeA = new Date(a.timestamp).getTime();
+          const timeB = new Date(b.timestamp).getTime();
+          if (timeA !== timeB) return timeA - timeB;
+          
+          // Иначе по ID
+          return (parseInt(a.id) || 0) - (parseInt(b.id) || 0);
+        });
 
     let lastDate = '';
     return chatMessages.map((msg, index) => {
@@ -1664,7 +1676,6 @@ function Forum() {
               <img src="/user_logo_one.png" alt="user" className="user_logo" />
               <div className="user-info">
                 <Link to="/profile" className="username-link"><h3 className="username">{user.name}</h3></Link>
-                <button className="logout-btn" onClick={handleLogout} title="Выйти"><i className="fas fa-sign-out-alt"></i></button>
               </div>
             </>
           ) : <Link to="/login"><h3 className="username">Войти</h3></Link>}

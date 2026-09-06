@@ -52,6 +52,14 @@ function AdminModules() {
     }
   };
 
+  // ===== ВЫХОД ИЗ АДМИНКИ =====
+  const handleAdminLogout = () => {
+    if (window.confirm('Вы уверены, что хотите выйти из админ-панели?')) {
+      localStorage.removeItem('adminSession');
+      navigate('/admin/login');
+    }
+  };
+
   // Статистика
   const totalModules = modules.length;
   const totalTopics = modules.reduce((acc, m) => acc + m.topicsCount, 0);
@@ -75,17 +83,22 @@ function AdminModules() {
           <Link to="/admin/modules" className="admin-menu-item active">
             <i className="fas fa-layer-group"></i> Модули
           </Link>
+          
           <Link to="/admin/users" className="admin-menu-item">
             <i className="fas fa-users"></i> Пользователи
           </Link>
+          <Link to="/admin/support" className="admin-menu-item"><i className="fas fa-headset"></i> Поддержка</Link>
           <Link to="/admin/settings" className="admin-menu-item">
             <i className="fas fa-sliders-h"></i> Настройки
           </Link>
+          <button className="admin-menu-item logout" onClick={handleAdminLogout}>
+            <i className="fas fa-sign-out-alt"></i> Выйти из админки
+          </button>
         </div>
 
         <div className="footer">
-          <img src="/public/user_logo_one.png" alt="user_logo_one" className="user_logo" />
-          <h3 className="username">Костя</h3>
+          <img src="/user_logo_one.png" alt="user_logo_one" className="user_logo" />
+          <h3 className="username">Admin</h3>
         </div>
       </div>
 
@@ -96,9 +109,7 @@ function AdminModules() {
             <h1><i className="fas fa-layer-group"></i> Управление модулями</h1>
             <p className="admin-subtitle">Создавай модули и группируй в них темы</p>
           </div>
-          <button className="btn-back" onClick={() => navigate('/admin')}>
-            <i className="fas fa-arrow-left"></i> Назад к темам
-          </button>
+          
         </div>
 
         {/* Статистика */}

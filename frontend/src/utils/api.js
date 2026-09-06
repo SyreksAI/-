@@ -1,5 +1,9 @@
 // src/utils/api.js
 
+// Глобальный счётчик попыток
+let banAttempts = 0;
+const MAX_BAN_ATTEMPTS = 5;
+
 /**
  * Безопасный fetch-запрос с обработкой ошибок
  * @param {string} url - URL запроса
@@ -21,9 +25,54 @@ export const safeFetch = async (url, options = {}) => {
     const data = await response.json();
     
     if (!response.ok) {
-      throw new Error(data.detail || data.message || 'Ошибка запроса');
+      const status = response.status;
+      const message = data.detail || data.message || 'Ошибка запроса';
+      
+      // ✅ ОБРАБОТКА БЛОКИРОВКИ (403) С СЧЁТЧИКОМ
+      if (status === 403 && (
+        message.includes('забанен') || 
+        message.includes('заблокирован') ||
+        message.toLowerCase().includes('banned')
+      )) {
+        // Увеличиваем счётчик
+        banAttempts++;
+        const remaining = MAX_BAN_ATTEMPTS - banAttempts;
+        
+        // Показываем предупреждение
+        if (remaining > 0) {
+          alert(`⛔ Ваш аккаунт заблокирован! Осталось ${remaining} попыток до выхода.`);
+        }
+        
+        // Если достигнут лимит — принудительный выход
+        if (banAttempts >= MAX_BAN_ATTEMPTS) {
+          alert('⛔ Превышен лимит попыток. Вы будете перенаправлены на страницу входа.');
+          localStorage.removeItem('currentUser');
+          localStorage.removeItem('adminSession');
+          window.location.href = '/login';
+          return;
+        }
+        
+        throw new Error(message);
+      }
+      
+      // Обработка 401 (неавторизован)
+      if (status === 401) {
+        const currentPath = window.location.pathname;
+        if (!currentPath.includes('/login') && 
+            !currentPath.includes('/register') && 
+            !currentPath.includes('/admin/login')) {
+          localStorage.removeItem('currentUser');
+          localStorage.removeItem('adminSession');
+          window.location.href = '/login';
+        }
+        throw new Error(message);
+      }
+      
+      throw new Error(message);
     }
     
+    // ✅ Сбрасываем счётчик при успешном запросе
+    banAttempts = 0;
     return data;
   } catch (error) {
     console.error('❌ Fetch error:', error);
@@ -73,4 +122,70 @@ export const del = (url, headers = {}) => {
   });
 };
 
+// ============================================================
+// 🆕 API ДЛЯ АУТЕНТИФИКАЦИИ (с reCAPTCHA)
+// ============================================================
 
+/**
+ * API для авторизации и регистрации
+ */
+export const authAPI = {
+  /**
+   * Регистрация нового пользователя
+   * @param {Object} data - Данные пользователя
+   * @param {string} data.name - Имя
+   * @param {string} data.username - Имя пользователя
+   * @param {string} data.email - Email
+   * @param {string} data.password - Пароль
+   * @param {string} data.recaptcha_token - Токен reCAPTCHA (обязательно!)
+   * @returns {Promise<Object>} - Данные пользователя и токен
+   */
+  register: async (data) => {
+    return post('/api/auth/register', data);
+  },
+
+  /**
+   * Вход в систему
+   * @param {Object} data - Данные для входа
+   * @param {string} data.email - Email или username
+   * @param {string} data.password - Пароль
+   * @returns {Promise<Object>} - Данные пользователя и токен
+   */
+  login: async (data) => {
+    return post('/api/auth/login', data);
+  },
+
+  /**
+   * Проверка текущего пользователя
+   * @param {number} userId - ID пользователя
+   * @returns {Promise<Object>} - Данные пользователя
+   */
+  getCurrentUser: async (userId) => {
+    return get(`/api/users/${userId}`, {
+      'X-User-ID': String(userId)
+    });
+  },
+
+  /**
+   * Обновление профиля пользователя
+   * @param {number} userId - ID пользователя
+   * @param {Object} data - Данные для обновления
+   * @returns {Promise<Object>} - Обновлённые данные
+   */
+  updateUser: async (userId, data) => {
+    return put(`/api/users/${userId}`, data, {
+      'X-User-ID': String(userId)
+    });
+  },
+
+  /**
+   * Обновление онлайн-статуса (ping)
+   * @param {number} userId - ID пользователя
+   * @returns {Promise<Object>} - Статус
+   */
+  ping: async (userId) => {
+    return post('/api/users/ping', {}, {
+      'X-User-ID': String(userId)
+    });
+  }
+};

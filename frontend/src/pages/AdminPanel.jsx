@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { get, post, put, del } from '../utils/api';
 
-function AdminPanel({ categories, setCategories, settings }) {
+function AdminPanel({ settings }) {
   const navigate = useNavigate();
 
   // ===== ПРОВЕРКА СЕССИИ АДМИНА =====
@@ -21,6 +22,8 @@ function AdminPanel({ categories, setCategories, settings }) {
   };
 
   // ===== СОСТОЯНИЯ =====
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState(null);
   const [activeTopic, setActiveTopic] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -86,17 +89,29 @@ function AdminPanel({ categories, setCategories, settings }) {
   ];
 
   const fontSizes = [10, 12, 14, 16, 18, 24];
-  const allTechNames = useMemo(() => categories.map(c => c.name), [categories]);
 
-  // ===== ФИЛЬТРАЦИЯ ТЕХНОЛОГИЙ ДЛЯ ДРОПДАУНА =====
-  const filteredTechs = useMemo(() => {
-    const search = newTopic.technologies.trim().toLowerCase();
-    if (!search) return [];
-    return allTechNames.filter(name => 
-      name.toLowerCase().includes(search) && 
-      name.toLowerCase() !== search
-    );
-  }, [allTechNames, newTopic.technologies]);
+  // ===== ЗАГРУЗКА ДАННЫХ ИЗ БД =====
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const data = await get('/api/study/technologies');
+        const enrichedData = await Promise.all(data.map(async (tech) => {
+          const topics = await get(`/api/study/technologies/${tech.id}/topics`);
+          const enrichedTopics = await Promise.all(topics.map(async (topic) => {
+            const subtopics = await get(`/api/study/topics/${topic.id}/subtopics`);
+            return { ...topic, subtopics };
+          }));
+          return { ...tech, topics: enrichedTopics };
+        }));
+        setCategories(enrichedData);
+      } catch (error) {
+        console.error('Ошибка загрузки категорий:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadCategories();
+  }, []);
 
   // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
   const getActiveCategory = useCallback(() => {
@@ -425,42 +440,73 @@ function AdminPanel({ categories, setCategories, settings }) {
     closeContextMenu();
   }, [closeContextMenu]);
 
-  const handleSaveCategory = useCallback(() => {
+  const handleSaveCategory = useCallback(async () => {
+    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+    if (!currentUser) {
+      alert('Пожалуйста, войдите в аккаунт');
+      return;
+    }
+
     if (!newCategoryName.trim()) {
       alert('Введите название технологии');
       return;
     }
     
-    const oldCategory = categories.find(c => c.id === editingCategoryId);
-    const oldName = oldCategory?.name;
-    
-    setCategories(prev => prev.map(c => 
-      c.id === editingCategoryId ? { ...c, name: newCategoryName.trim() } : c
-    ));
-    
-    if (activeCategory === oldName) {
-      setActiveCategory(newCategoryName.trim());
+    try {
+      await put(`/api/study/technologies/${editingCategoryId}`, {
+        name: newCategoryName.trim()
+      }, {
+        'X-User-ID': String(currentUser.id)
+      });
+      
+      setCategories(prev => prev.map(c => 
+        c.id === editingCategoryId ? { ...c, name: newCategoryName.trim() } : c
+      ));
+      
+      if (activeCategory === categories.find(c => c.id === editingCategoryId)?.name) {
+        setActiveCategory(newCategoryName.trim());
+      }
+      
+      setEditingCategoryId(null);
+      setNewCategoryName('');
+      alert('Технология обновлена!');
+    } catch (error) {
+      console.error('Ошибка обновления технологии:', error);
+      alert('Ошибка обновления технологии');
     }
-    
-    setEditingCategoryId(null);
-    setNewCategoryName('');
-  }, [categories, editingCategoryId, newCategoryName, activeCategory, setCategories]);
+  }, [categories, editingCategoryId, newCategoryName, activeCategory]);
 
   const handleCancelEditCategory = useCallback(() => {
     setEditingCategoryId(null);
     setNewCategoryName('');
   }, []);
 
-  const handleDeleteCategory = useCallback((id) => {
+  const handleDeleteCategory = useCallback(async (id) => {
+    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+    if (!currentUser) {
+      alert('Пожалуйста, войдите в аккаунт');
+      return;
+    }
+
     const category = categories.find(c => c.id === id);
     if (!category) return;
     if (!window.confirm(`Удалить технологию "${category.name}" со всеми темами?`)) return;
-    setCategories(prev => prev.filter(c => c.id !== id));
-    if (activeCategory === category.name) {
-      setActiveCategory(null);
+    
+    try {
+      await del(`/api/study/technologies/${id}`, {
+        'X-User-ID': String(currentUser.id)
+      });
+      setCategories(prev => prev.filter(c => c.id !== id));
+      if (activeCategory === category.name) {
+        setActiveCategory(null);
+      }
+      closeContextMenu();
+      alert('Технология удалена!');
+    } catch (error) {
+      console.error('Ошибка удаления технологии:', error);
+      alert('Ошибка удаления технологии');
     }
-    closeContextMenu();
-  }, [categories, activeCategory, closeContextMenu, setCategories]);
+  }, [categories, activeCategory, closeContextMenu]);
 
   // ===== CRUD ДЛЯ ТЕМ =====
   const handleEditTopic = useCallback((topic) => {
@@ -474,7 +520,7 @@ function AdminPanel({ categories, setCategories, settings }) {
     setActiveTopic(topic.title);
     setNewTopic({
       title: topic.title || '',
-      technologies: Array.isArray(topic.technologies) ? topic.technologies.join(', ') : '',
+      technologies: category.name,
       description: topic.description || ''
     });
     setShowSubTopicField(false);
@@ -484,8 +530,14 @@ function AdminPanel({ categories, setCategories, settings }) {
     closeModal();
   }, [categories, closeModal, closeContextMenu]);
 
-  const handleAddTopic = useCallback((e) => {
+  const handleAddTopic = useCallback(async (e) => {
     e.preventDefault();
+
+    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+    if (!currentUser) {
+      alert('Пожалуйста, войдите в аккаунт');
+      return;
+    }
 
     const title = newTopic.title.trim();
     const techInput = newTopic.technologies.trim();
@@ -498,104 +550,172 @@ function AdminPanel({ categories, setCategories, settings }) {
     const techList = techInput.split(',').map(s => s.trim()).filter(Boolean);
     const mainTech = techList[0];
 
-    const existingCategory = categories.find(c => c.name.toLowerCase() === mainTech.toLowerCase());
+    try {
+      // ===== 1. НАХОДИМ ИЛИ СОЗДАЁМ ТЕХНОЛОГИЮ =====
+      let existingCategory = categories.find(c => c.name.toLowerCase() === mainTech.toLowerCase());
 
-    const newSubtopics = [];
-    if (showSubTopicField && subTopicTitle.trim()) {
-      newSubtopics.push({
-        id: Date.now() + 1,
-        title: subTopicTitle.trim(),
-        description: ''
-      });
-    }
-
-    if (editingId !== null) {
-      setCategories(prev => prev.map(c => {
-        if (c.name !== activeCategory) return c;
-        return {
-          ...c,
-          topics: c.topics.map(t => t.id === editingId ? { 
-            ...t, 
-            title, 
-            technologies: techList, 
-            description, 
-            subtopics: [...(t.subtopics || []), ...newSubtopics] 
-          } : t)
-        };
-      }));
-      setActiveTopic(title);
-    } else {
-      if (existingCategory) {
-        const existingTopic = existingCategory.topics.find(t => t.title.toLowerCase() === title.toLowerCase());
-
-        if (existingTopic) {
-          setCategories(prev => prev.map(c => {
-            if (c.id !== existingCategory.id) return c;
-            return {
-              ...c,
-              topics: c.topics.map(t => {
-                if (t.id !== existingTopic.id) return t;
-                const mergedSubtopics = [...(t.subtopics || [])];
-                newSubtopics.forEach(st => {
-                  const exists = mergedSubtopics.some(existingSt => 
-                    existingSt.title.toLowerCase() === st.title.toLowerCase()
-                  );
-                  if (!exists) {
-                    mergedSubtopics.push(st);
-                  }
-                });
-                return {
-                  ...t,
-                  subtopics: mergedSubtopics
-                };
-              })
-            };
-          }));
-          setActiveCategory(existingCategory.name);
-          setActiveTopic(title);
-        } else {
-          setCategories(prev => prev.map(c => {
-            if (c.id !== existingCategory.id) return c;
-            return {
-              ...c,
-              topics: [...c.topics, { 
-                id: Date.now(), 
-                title, 
-                technologies: techList, 
-                description, 
-                subtopics: newSubtopics 
-              }]
-            };
-          }));
-          setActiveCategory(existingCategory.name);
-          setActiveTopic(title);
-        }
-      } else {
-        const newCategory = {
-          id: Date.now(),
-          name: mainTech,
-          icon: 'fas fa-code',
-          topics: [{ 
-            id: Date.now(), 
-            title, 
-            technologies: techList, 
-            description, 
-            subtopics: newSubtopics 
-          }]
-        };
-        setCategories(prev => [...prev, newCategory]);
-        setActiveCategory(newCategory.name);
-        setActiveTopic(title);
+      if (!existingCategory) {
+        const allTechs = await get('/api/study/technologies');
+        existingCategory = allTechs.find(c => c.name.toLowerCase() === mainTech.toLowerCase());
       }
-    }
 
-    setEditingId(null);
-    setNewTopic({ title: '', technologies: '', description: '' });
-    setShowSubTopicField(false);
-    setSubTopicTitle('');
-    setShowTechDropdown(false);
-    if (editorRef.current) editorRef.current.innerHTML = '';
-  }, [activeCategory, categories, editingId, newTopic, showSubTopicField, subTopicTitle, setCategories]);
+      if (!existingCategory) {
+        const newCat = await post('/api/study/technologies', {
+          name: mainTech,
+          icon: 'fas fa-code'
+        }, {
+          'X-User-ID': String(currentUser.id)
+        });
+        existingCategory = newCat;
+        setCategories(prev => [...prev, { ...newCat, topics: [] }]);
+      }
+
+      // ===== 2. ПРОВЕРЯЕМ, ЕСТЬ ЛИ УЖЕ ТАКАЯ ТЕМА В ЛОКАЛЬНОМ СОСТОЯНИИ =====
+      // ⚠️ ВАЖНО: existingCategory уже содержит topics из enrichedData
+      let existingTopic = null;
+      if (existingCategory.topics) {
+        existingTopic = existingCategory.topics.find(t => t.title.toLowerCase() === title.toLowerCase());
+      }
+
+      // ===== 3. ЕСЛИ РЕДАКТИРОВАНИЕ =====
+      if (editingId !== null) {
+        await put(`/api/study/topics/${editingId}`, {
+          title: title,
+          description: description,
+          technology_id: existingCategory.id,
+          sort_order: 0
+        }, {
+          'X-User-ID': String(currentUser.id)
+        });
+
+        setCategories(prev => prev.map(c => {
+          if (c.id === existingCategory.id) {
+            return {
+              ...c,
+              topics: c.topics.map(t =>
+                t.id === editingId ? { ...t, title, description } : t
+              )
+            };
+          }
+          return c;
+        }));
+
+        setEditingId(null);
+        alert('✅ Тема обновлена!');
+        
+      // ===== 4. ЕСЛИ ТЕМЫ НЕТ — СОЗДАЁМ =====
+      } else if (!existingTopic) {
+        const newTopicData = await post('/api/study/topics', {
+          title: title,
+          description: description,
+          technology_id: existingCategory.id,
+          sort_order: 0
+        }, {
+          'X-User-ID': String(currentUser.id)
+        });
+
+        // Добавляем тему в локальное состояние
+        setCategories(prev => prev.map(c => {
+          if (c.id === existingCategory.id) {
+            return {
+              ...c,
+              topics: [...(c.topics || []), { ...newTopicData, subtopics: [] }]
+            };
+          }
+          return c;
+        }));
+
+        // Если есть подтема — добавляем к новой теме
+        if (showSubTopicField && subTopicTitle.trim()) {
+          const newSubTopicData = await post('/api/study/subtopics', {
+            title: subTopicTitle.trim(),
+            description: '',
+            topic_id: newTopicData.id,
+            sort_order: 0
+          }, {
+            'X-User-ID': String(currentUser.id)
+          });
+
+          setCategories(prev => prev.map(c => {
+            if (c.id === existingCategory.id) {
+              return {
+                ...c,
+                topics: c.topics.map(t => {
+                  if (t.id === newTopicData.id) {
+                    return {
+                      ...t,
+                      subtopics: [newSubTopicData]
+                    };
+                  }
+                  return t;
+                })
+              };
+            }
+            return c;
+          }));
+        }
+
+        alert('✅ Тема создана!');
+
+      // ===== 5. ЕСЛИ ТЕМА УЖЕ СУЩЕСТВУЕТ — ДОБАВЛЯЕМ ПОДТЕМУ =====
+      } else {
+        // Проверяем, есть ли уже такая подтема
+        const existingSubTopic = existingTopic.subtopics?.find(
+          st => st.title.toLowerCase() === subTopicTitle.trim().toLowerCase()
+        );
+
+        if (showSubTopicField && subTopicTitle.trim()) {
+          if (existingSubTopic) {
+            alert('⚠️ Такая подтема уже существует!');
+          } else {
+            const newSubTopicData = await post('/api/study/subtopics', {
+              title: subTopicTitle.trim(),
+              description: '',
+              topic_id: existingTopic.id,
+              sort_order: 0
+            }, {
+              'X-User-ID': String(currentUser.id)
+            });
+
+            // Обновляем локальное состояние
+            setCategories(prev => prev.map(c => {
+              if (c.id === existingCategory.id) {
+                return {
+                  ...c,
+                  topics: c.topics.map(t => {
+                    if (t.id === existingTopic.id) {
+                      return {
+                        ...t,
+                        subtopics: [...(t.subtopics || []), newSubTopicData]
+                      };
+                    }
+                    return t;
+                  })
+                };
+              }
+              return c;
+            }));
+
+            alert('✅ Подтема добавлена!');
+          }
+        } else {
+          alert('⚠️ Такая тема уже существует! Включите поле "Название подтемы", чтобы добавить подтему.');
+        }
+      }
+
+      setActiveCategory(existingCategory.name);
+      setActiveTopic(title);
+      setNewTopic({ title: '', technologies: '', description: '' });
+      setShowSubTopicField(false);
+      setSubTopicTitle('');
+      setShowTechDropdown(false);
+      if (editorRef.current) editorRef.current.innerHTML = '';
+
+    } catch (error) {
+      console.error('Ошибка сохранения темы:', error);
+      alert('❌ Ошибка сохранения темы: ' + (error.message || 'Неизвестная ошибка'));
+    }
+  }, [categories, newTopic, editingId, showSubTopicField, subTopicTitle, editorRef]);
 
   const selectTech = useCallback((techName) => {
     setNewTopic(prev => ({ ...prev, technologies: techName }));
@@ -606,15 +726,31 @@ function AdminPanel({ categories, setCategories, settings }) {
     }
   }, [categories]);
 
-  const handleDeleteTopic = useCallback((id) => {
+  const handleDeleteTopic = useCallback(async (id) => {
+    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+    if (!currentUser) {
+      alert('Пожалуйста, войдите в аккаунт');
+      return;
+    }
+
     if (!window.confirm('Удалить тему со всеми подтемами?')) return;
-    setCategories(prev => prev.map(c => {
-      if (c.name !== activeCategory) return c;
-      return { ...c, topics: c.topics.filter(t => t.id !== id) };
-    }));
-    if (activeTopic) setActiveTopic(null);
-    closeContextMenu();
-  }, [activeCategory, activeTopic, closeContextMenu, setCategories]);
+    
+    try {
+      await del(`/api/study/topics/${id}`, {
+        'X-User-ID': String(currentUser.id)
+      });
+      setCategories(prev => prev.map(c => {
+        if (c.name !== activeCategory) return c;
+        return { ...c, topics: c.topics.filter(t => t.id !== id) };
+      }));
+      if (activeTopic) setActiveTopic(null);
+      closeContextMenu();
+      alert('Тема удалена!');
+    } catch (error) {
+      console.error('Ошибка удаления темы:', error);
+      alert('Ошибка удаления темы');
+    }
+  }, [activeCategory, activeTopic, closeContextMenu]);
 
   const toggleTopic = useCallback((title) => {
     setActiveTopic(prev => prev === title ? null : title);
@@ -638,8 +774,14 @@ function AdminPanel({ categories, setCategories, settings }) {
     closeModal();
   }, [closeModal, closeContextMenu]);
 
-  const handleAddSubTopic = useCallback((e) => {
+  const handleAddSubTopic = useCallback(async (e) => {
     e.preventDefault();
+
+    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+    if (!currentUser) {
+      alert('Пожалуйста, войдите в аккаунт');
+      return;
+    }
 
     if (!activeTopicData) {
       alert('Сначала выберите тему');
@@ -652,55 +794,97 @@ function AdminPanel({ categories, setCategories, settings }) {
     if (!title) { alert('Введите название подтемы'); return; }
     if (!description || description === '<br>') { alert('Введите описание подтемы'); return; }
 
-    if (editingSubTopicId !== null) {
-      setCategories(prev => prev.map(c => {
-        if (c.name !== activeCategory) return c;
-        return {
-          ...c,
-          topics: c.topics.map(t => {
-            if (t.title !== activeTopic) return t;
-            return {
-              ...t,
-              subtopics: t.subtopics.map(st => st.id === editingSubTopicId ? { ...st, title, description } : st)
-            };
-          })
-        };
-      }));
-    } else {
-      setCategories(prev => prev.map(c => {
-        if (c.name !== activeCategory) return c;
-        return {
-          ...c,
-          topics: c.topics.map(t => {
-            if (t.title !== activeTopic) return t;
-            return {
-              ...t,
-              subtopics: [...(t.subtopics || []), { id: Date.now(), title, description }]
-            };
-          })
-        };
-      }));
+    try {
+      if (editingSubTopicId !== null) {
+        // Редактирование
+        await put(`/api/study/subtopics/${editingSubTopicId}`, {
+          title: title,
+          description: description,
+          topic_id: activeTopicData.id,  // ✅ ДОБАВИТЬ!
+          sort_order: 0
+        }, {
+          'X-User-ID': String(currentUser.id)
+        });
+        setCategories(prev => prev.map(c => {
+          if (c.name !== activeCategory) return c;
+          return {
+            ...c,
+            topics: c.topics.map(t => {
+              if (t.title !== activeTopic) return t;
+              return {
+                ...t,
+                subtopics: t.subtopics.map(st => 
+                  st.id === editingSubTopicId ? { ...st, title, description } : st
+                )
+              };
+            })
+          };
+        }));
+      } else {
+        // Создание
+        const newSubTopicData = await post('/api/study/subtopics', {
+          title: title,
+          description: description,
+          topic_id: activeTopicData.id,
+          sort_order: 0
+        }, {
+          'X-User-ID': String(currentUser.id)
+        });
+        setCategories(prev => prev.map(c => {
+          if (c.name !== activeCategory) return c;
+          return {
+            ...c,
+            topics: c.topics.map(t => {
+              if (t.title !== activeTopic) return t;
+              return {
+                ...t,
+                subtopics: [...(t.subtopics || []), newSubTopicData]
+              };
+            })
+          };
+        }));
+      }
+
+      setEditingSubTopicId(null);
+      setNewSubTopic({ title: '', description: '' });
+      if (editorRef.current) editorRef.current.innerHTML = '';
+      alert('Подтема сохранена!');
+    } catch (error) {
+      console.error('Ошибка сохранения подтемы:', error);
+      alert('Ошибка сохранения подтемы');
+    }
+  }, [activeCategory, activeTopic, activeTopicData, editingSubTopicId, newSubTopic]);
+
+  const handleDeleteSubTopic = useCallback(async (id) => {
+    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+    if (!currentUser) {
+      alert('Пожалуйста, войдите в аккаунт');
+      return;
     }
 
-    setEditingSubTopicId(null);
-    setNewSubTopic({ title: '', description: '' });
-    if (editorRef.current) editorRef.current.innerHTML = '';
-  }, [activeCategory, activeTopic, activeTopicData, editingSubTopicId, newSubTopic, setCategories]);
-
-  const handleDeleteSubTopic = useCallback((id) => {
     if (!window.confirm('Удалить подтему?')) return;
-    setCategories(prev => prev.map(c => {
-      if (c.name !== activeCategory) return c;
-      return {
-        ...c,
-        topics: c.topics.map(t => {
-          if (t.title !== activeTopic) return t;
-          return { ...t, subtopics: t.subtopics.filter(st => st.id !== id) };
-        })
-      };
-    }));
-    closeContextMenu();
-  }, [activeCategory, activeTopic, closeContextMenu, setCategories]);
+    
+    try {
+      await del(`/api/study/subtopics/${id}`, {
+        'X-User-ID': String(currentUser.id)
+      });
+      setCategories(prev => prev.map(c => {
+        if (c.name !== activeCategory) return c;
+        return {
+          ...c,
+          topics: c.topics.map(t => {
+            if (t.title !== activeTopic) return t;
+            return { ...t, subtopics: t.subtopics.filter(st => st.id !== id) };
+          })
+        };
+      }));
+      closeContextMenu();
+      alert('Подтема удалена!');
+    } catch (error) {
+      console.error('Ошибка удаления подтемы:', error);
+      alert('Ошибка удаления подтемы');
+    }
+  }, [activeCategory, activeTopic, closeContextMenu]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingId(null);
@@ -802,8 +986,42 @@ function AdminPanel({ categories, setCategories, settings }) {
       .filter(c => c.topics.length > 0);
   }, [categories, searchTerm]);
 
-  const totalTopics = useMemo(() => categories.reduce((acc, c) => acc + c.topics.length, 0), [categories]);
-  const totalSubTopics = useMemo(() => categories.reduce((acc, c) => acc + c.topics.reduce((s, t) => s + (t.subtopics?.length || 0), 0), 0), [categories]);
+  const totalTopics = useMemo(() => categories.reduce((acc, c) => acc + (c.topics?.length || 0), 0), [categories]);
+  const totalSubTopics = useMemo(() => categories.reduce((acc, c) => acc + (c.topics?.reduce((s, t) => s + (t.subtopics?.length || 0), 0) || 0), 0), [categories]);
+
+  // Показываем загрузку
+  if (loading) {
+    return (
+      <div className="admin-container">
+        <div className="admin-sidebar">
+          <div className="header">
+            <img className="logo" src="/logo.png" alt="logo" />
+          </div>
+          <div className="admin-menu">
+            <div className="admin-menu-title">Навигация</div>
+            <Link to="/" className="admin-menu-item"><i className="fas fa-home"></i> На главную</Link>
+            <Link to="/admin" className="admin-menu-item active"><i className="fas fa-book"></i> Управление темами</Link>
+            <Link to="/admin/users" className="admin-menu-item"><i className="fas fa-users"></i> Пользователи</Link>
+            <Link to="/admin/settings" className="admin-menu-item"><i className="fas fa-sliders-h"></i> Настройки</Link>
+            <div className="admin-menu-divider"></div>
+            <button className="admin-menu-item logout" onClick={handleAdminLogout}>
+              <i className="fas fa-sign-out-alt"></i> Выйти из админки
+            </button>
+          </div>
+          <div className="footer">
+            <img src="/user_logo_one.png" alt="user_logo_one" className="user_logo" />
+            <h3 className="username">Admin</h3>
+          </div>
+        </div>
+        <div className="admin-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
+          <div style={{ textAlign: 'center' }}>
+            <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', color: '#7c3aed' }}></i>
+            <p style={{ color: '#94a3b8', marginTop: '12px' }}>Загрузка данных...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="admin-container">
@@ -817,6 +1035,7 @@ function AdminPanel({ categories, setCategories, settings }) {
           <Link to="/" className="admin-menu-item"><i className="fas fa-home"></i> На главную</Link>
           <Link to="/admin" className="admin-menu-item active"><i className="fas fa-book"></i> Управление темами</Link>
           <Link to="/admin/users" className="admin-menu-item"><i className="fas fa-users"></i> Пользователи</Link>
+          <Link to="/admin/support" className="admin-menu-item"><i className="fas fa-headset"></i> Поддержка</Link>
           <Link to="/admin/settings" className="admin-menu-item"><i className="fas fa-sliders-h"></i> Настройки</Link>
           <div className="admin-menu-divider"></div>
           <button className="admin-menu-item logout" onClick={handleAdminLogout}>
@@ -824,8 +1043,8 @@ function AdminPanel({ categories, setCategories, settings }) {
           </button>
         </div>
         <div className="footer">
-          <img src="/public/user_logo_one.png" alt="user_logo_one" className="user_logo" />
-          <h3 className="username">Костя</h3>
+          <img src="/user_logo_one.png" alt="user_logo_one" className="user_logo" />
+          <h3 className="username">Admin</h3>
         </div>
       </div>
 
@@ -837,9 +1056,6 @@ function AdminPanel({ categories, setCategories, settings }) {
             <h1><i className="fas fa-book"></i> Управление темами</h1>
             <p className="admin-subtitle">Управляй темами и подтемами внутри каждой технологии</p>
           </div>
-          <button className="btn-back" onClick={() => navigate('/')} type="button">
-            <i className="fas fa-arrow-left"></i> На главную
-          </button>
         </div>
 
         {/* STATS */}
@@ -879,11 +1095,8 @@ function AdminPanel({ categories, setCategories, settings }) {
           {/* FORM */}
           <div className="admin-left-col">
             {editingCategoryId !== null ? (
-              // ФОРМА РЕДАКТИРОВАНИЯ ТЕХНОЛОГИИ
               <div className="admin-form-top">
-                <h2>
-                  <i className="fas fa-pen"></i> Редактировать технологию
-                </h2>
+                <h2><i className="fas fa-pen"></i> Редактировать технологию</h2>
                 <form onSubmit={(e) => { e.preventDefault(); handleSaveCategory(); }}>
                   <div className="form-group">
                     <label className="form-label">Название технологии</label>
@@ -906,7 +1119,6 @@ function AdminPanel({ categories, setCategories, settings }) {
                 </form>
               </div>
             ) : editingSubTopicId !== null ? (
-              // ФОРМА РЕДАКТИРОВАНИЯ ПОДТЕМЫ
               <div className="admin-form-top">
                 <h2>
                   <i className="fas fa-pen"></i> Редактировать подтему
@@ -923,7 +1135,6 @@ function AdminPanel({ categories, setCategories, settings }) {
                       required
                     />
                   </div>
-
                   <div className="form-group full-width">
                     <div className="editor-label">Описание подтемы *</div>
                     <div
@@ -942,7 +1153,6 @@ function AdminPanel({ categories, setCategories, settings }) {
                       Выделите текст левой кнопкой мыши и нажмите правую кнопку для форматирования
                     </div>
                   </div>
-
                   <div className="form-buttons">
                     <button type="submit" className="btn-submit">
                       <i className="fas fa-save"></i> Сохранить подтему
@@ -958,7 +1168,6 @@ function AdminPanel({ categories, setCategories, settings }) {
                 </form>
               </div>
             ) : (
-              // ФОРМА ДОБАВЛЕНИЯ/РЕДАКТИРОВАНИЯ ТЕМЫ
               <div className="admin-form-top">
                 <h2>
                   <i className={`fas ${editingId !== null ? 'fa-pen' : 'fa-plus-circle'}`}></i>
@@ -994,19 +1203,25 @@ function AdminPanel({ categories, setCategories, settings }) {
                           }}
                           required
                         />
-                        {showTechDropdown && filteredTechs.length > 0 && (
-                          <div className="tech-dropdown">
-                            {filteredTechs.map(tech => (
-                              <div 
-                                key={tech} 
-                                className="tech-dropdown-item"
-                                onClick={() => selectTech(tech)}
-                              >
-                                {tech}
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        {showTechDropdown && (() => {
+                          const search = newTopic.technologies.trim().toLowerCase();
+                          const filtered = categories
+                            .filter(c => c.name.toLowerCase().includes(search) && c.name.toLowerCase() !== search)
+                            .map(c => c.name);
+                          return filtered.length > 0 && (
+                            <div className="tech-dropdown">
+                              {filtered.map(tech => (
+                                <div 
+                                  key={tech} 
+                                  className="tech-dropdown-item"
+                                  onClick={() => selectTech(tech)}
+                                >
+                                  {tech}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <button
                         type="button"
@@ -1248,9 +1463,6 @@ function AdminPanel({ categories, setCategories, settings }) {
                       />
                     ))}
                   </div>
-                  <button className="color-picker-back" onClick={() => { setShowColorPicker(false); setShowSizePicker(false); }}>
-                    <i className="fas fa-arrow-left"></i> Назад
-                  </button>
                 </div>
               ) : showSizePicker ? (
                 <div className="size-picker-container">
@@ -1268,9 +1480,6 @@ function AdminPanel({ categories, setCategories, settings }) {
                       </button>
                     ))}
                   </div>
-                  <button className="size-picker-back" onClick={() => { setShowSizePicker(false); setShowColorPicker(false); }}>
-                    <i className="fas fa-arrow-left"></i> Назад
-                  </button>
                 </div>
               ) : (
                 <div className="editor-tools">

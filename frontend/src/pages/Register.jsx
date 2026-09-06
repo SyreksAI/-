@@ -1,9 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { authAPI } from '../api';
+import { authAPI } from '../utils/api';
+import { Turnstile } from '@marsidev/react-turnstile';
 
 function Register() {
   const navigate = useNavigate();
+  const [turnstileToken, setTurnstileToken] = useState(null);
+  const turnstileContainerRef = useRef(null);
+  const widgetIdRef = useRef(null);
+  
   const [formData, setFormData] = useState({
     name: '',
     username: '',
@@ -13,6 +18,59 @@ function Register() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // ✅ ЗАГРУЗКА TURNSTILE СКРИПТА
+  useEffect(() => {
+    // Загружаем скрипт Cloudflare Turnstile
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+    script.async = true;
+    script.defer = true;
+    document.head.appendChild(script);
+
+    // Ждём, пока API станет доступным
+    const checkTurnstile = setInterval(() => {
+      if (window.turnstile) {
+        clearInterval(checkTurnstile);
+        renderTurnstile();
+      }
+    }, 100);
+
+    // Очистка при размонтировании
+    return () => {
+      clearInterval(checkTurnstile);
+      if (widgetIdRef.current && window.turnstile) {
+        try {
+          window.turnstile.remove(widgetIdRef.current);
+        } catch (e) {}
+      }
+    };
+  }, []);
+
+  const renderTurnstile = () => {
+    if (!turnstileContainerRef.current || !window.turnstile) return;
+
+    // Очищаем контейнер
+    turnstileContainerRef.current.innerHTML = '';
+
+    // Создаём виджет
+    widgetIdRef.current = window.turnstile.render(turnstileContainerRef.current, {
+      sitekey: '0x4AAAAAAEp_ptyyFaa5K-ck',
+      theme: 'light',
+      callback: function(token) {
+        console.log('✅ Turnstile токен получен:', token);
+        setTurnstileToken(token);
+      },
+      'expired-callback': function() {
+        console.log('⏰ Turnstile токен истёк');
+        setTurnstileToken(null);
+      },
+      'error-callback': function() {
+        console.log('❌ Ошибка Turnstile');
+        setTurnstileToken(null);
+      }
+    });
+  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -25,6 +83,7 @@ function Register() {
 
     const { name, username, email, password, confirmPassword } = formData;
 
+    // ✅ ВАЛИДАЦИЯ
     if (!name.trim()) {
       setError('❌ Введите ваше имя');
       setLoading(false);
@@ -61,14 +120,28 @@ function Register() {
       return;
     }
 
+    // ✅ ПРОВЕРКА Turnstile
+    if (!turnstileToken) {
+      setError('❌ Подтвердите, что вы не робот');
+      setLoading(false);
+      return;
+    }
+
+    console.log('📤 Sending registration data:', { 
+      name, 
+      username, 
+      email, 
+      password,
+      recaptcha_token: turnstileToken 
+    });
+
     try {
-      console.log('📤 Sending registration data:', { name, username, email, password });
-      
       const response = await authAPI.register({ 
         name, 
         username, 
         email, 
-        password 
+        password,
+        recaptcha_token: turnstileToken
       });
       
       console.log('📥 Registration response:', response);
@@ -83,6 +156,11 @@ function Register() {
       console.error('❌ Registration error:', err);
       setError(err.message || '❌ Ошибка регистрации. Попробуйте другой username или email.');
       setLoading(false);
+      // Сбрасываем Turnstile
+      setTurnstileToken(null);
+      if (window.turnstile && widgetIdRef.current) {
+        window.turnstile.reset(widgetIdRef.current);
+      }
     }
   };
 
@@ -91,7 +169,7 @@ function Register() {
       <div className="auth-container">
         <div className="auth-header">
           <div className="auth-logo">
-            <img src="/logo.png" alt="ДубльПар.ru" className="auth-logo-img" />
+            <img src="/logo.png" alt="ДубльПар.рф" className="auth-logo-img" />
           </div>
           <h1>Регистрация</h1>
           <p>Создайте аккаунт для доступа к материалам</p>
@@ -158,6 +236,12 @@ function Register() {
               required
             />
           </div>
+
+          {/* ✅ TURNSTILE (официальный скрипт) */}
+          <div className="form-group turnstile-wrapper">
+            <div ref={turnstileContainerRef}></div>
+          </div>
+
           <button type="submit" className="btn-submit" disabled={loading}>
             {loading ? (
               <i className="fas fa-spinner fa-spin"></i>
@@ -170,6 +254,25 @@ function Register() {
 
         <div className="auth-footer">
           <p>Уже есть аккаунт? <Link to="/login">Войти</Link></p>
+        </div>
+
+        <div className="auth-footer-links">
+          <Link to="/privacy">Конфиденциальность</Link>
+          <span className="footer-divider">•</span>
+          <Link to="/terms">Условия использования</Link>
+          <span className="footer-divider">•</span>
+          <Link to="/support">Поддержка</Link>
+          <span className="footer-divider">•</span>
+          <Link to="/about">О проекте</Link>
+        </div>
+
+        <div className="auth-copyright">
+          © 2026 ДубльПар.рф. Все права защищены.
+        </div>
+
+        <div className="auth-security">
+          <i className="fas fa-lock"></i>
+          <span>Ваши данные защищены. Мы не передаём информацию третьим лицам.</span>
         </div>
       </div>
     </div>
