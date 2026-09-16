@@ -1,5 +1,5 @@
 # app/models.py
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import BigInteger, Column, Float, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -12,8 +12,9 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
+    yandex_id = Column(String, unique=True, index=True, nullable=True)
     password = Column(String, nullable=False)
-    role = Column(String, default="student")  # 'student', 'admin', 'moderator'
+    role = Column(String, default="user")  # user | moderator | admin | superadmin
     registered = Column(DateTime, server_default=func.now())
     languages = Column(JSON, default=[])
     topics_count = Column(Integer, default=0)
@@ -27,6 +28,7 @@ class User(Base):
     is_verified = Column(Boolean, default=False)
     bookmarks = Column(JSON, default=[])  # [{topic_id: 1}, {subtopic_id: 2}]
     email_notifications = Column(Boolean, default=True)  # Настройка уведомлений
+    legal_consents = Column(JSON, default=dict)  # Согласия при регистрации
     
     # Связи
     messages_sent = relationship("Message", foreign_keys="Message.user_id", back_populates="sender")
@@ -68,7 +70,9 @@ class Message(Base):
     timestamp = Column(DateTime, server_default=func.now())
     files = Column(JSON, default=[])
     reply_to_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
-    order = Column(Integer, default=0)
+    # bigint: старые строки хранят микросекундный timestamp, он не влезает в int4.
+    # Для сортировки не используется — порядок задаётся парой (timestamp, id).
+    order = Column(BigInteger, default=0)
     is_deleted = Column(Boolean, default=False)
     deleted_at = Column(DateTime, nullable=True)
     edited_at = Column(DateTime, nullable=True)
@@ -76,6 +80,34 @@ class Message(Base):
     reply_to = relationship("Message", remote_side=[id], foreign_keys=[reply_to_id])
     sender = relationship("User", foreign_keys=[user_id], back_populates="messages_sent")
     recipient = relationship("User", foreign_keys=[recipient_id], back_populates="messages_received")
+    attachments = relationship(
+        "Attachment",
+        back_populates="message",
+        order_by="Attachment.created_at",
+    )
+
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+
+    id = Column(String(32), primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=True, index=True)
+    uploader_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    chat_id = Column(String, nullable=False, index=True)
+    kind = Column(String(16), nullable=False)  # image | video | audio | file
+    mime = Column(String(128), nullable=False)
+    size = Column(BigInteger, nullable=False)
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    duration = Column(Float, nullable=True)
+    storage_key = Column(String(512), nullable=False)
+    thumb_key = Column(String(512), nullable=True)
+    original_name = Column(String(255), nullable=False)
+    caption = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    message = relationship("Message", back_populates="attachments")
+    uploader = relationship("User", foreign_keys=[uploader_id])
 
 
 class Group(Base):

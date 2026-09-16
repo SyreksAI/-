@@ -1,71 +1,86 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../context/AuthProvider';
+import { isAdminUser } from '../utils/auth';
+import CopyrightNotice from '../components/CopyrightNotice';
+import PasswordInput from '../components/PasswordInput';
 
 function AdminLogin() {
   const navigate = useNavigate();
-  const [loginKey, setLoginKey] = useState('');
+  const [params] = useSearchParams();
+  const { login, logout, isAuthenticated, user } = useAuth();
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const ADMIN_CREDENTIALS = {
-    key: 'admin123',
-    password: 'admin2024'
-  };
+  const next = params.get('next') || '/admin';
 
-  const handleSubmit = (e) => {
+  if (isAuthenticated && isAdminUser(user)) {
+    return <Navigate to={next} replace />;
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    setTimeout(() => {
-      if (loginKey === ADMIN_CREDENTIALS.key && password === ADMIN_CREDENTIALS.password) {
-        localStorage.setItem('adminSession', JSON.stringify({
-          loggedIn: true,
-          loginTime: new Date().toISOString()
-        }));
-        setLoading(false);
-        navigate('/admin');
-      } else {
-        setError('❌ Неверный ключ или пароль');
-        setLoading(false);
+    try {
+      const response = await login({
+        email: email.trim(),
+        password,
+      });
+
+      if (!isAdminUser(response.user)) {
+        await logout();
+        setError('Недостаточно прав для входа в админ-панель');
+        return;
       }
-    }, 500);
+
+      navigate(next);
+    } catch (err) {
+      setError(err.message || 'Неверный email или пароль');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="auth-page">
       <div className="auth-container">
         <div className="auth-header">
-          {/* ЛОГОТИП */}
-          
           <div className="auth-logo">
-            <img src="/logo.png" alt="ДубльПар.рф" className="auth-logo-img" />
+            <img src="/logo.png" alt="дубльпар.online" className="auth-logo-img" />
           </div>
           <div className="admin-login-icon">
             <i className="fas fa-shield-alt"></i>
           </div>
           <h1>Вход в админ-панель</h1>
-          <p>Введите ключ и пароль для доступа</p>
+          <p>Войдите с учётной записью администратора</p>
         </div>
 
         {error && <div className="auth-error">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="auth-form">
+        <form onSubmit={handleSubmit} className="auth-form" autoComplete="on">
           <div className="form-group">
-            <label>Ключ доступа</label>
+            <label htmlFor="admin-login-email">Email</label>
             <input
-              type="text"
-              placeholder="Введите ключ"
-              value={loginKey}
-              onChange={(e) => setLoginKey(e.target.value)}
+              id="admin-login-email"
+              name="email"
+              type="email"
+              autoComplete="username email"
+              placeholder="Введите email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
             />
           </div>
           <div className="form-group">
-            <label>Пароль</label>
-            <input
-              type="password"
+            <label htmlFor="admin-login-password">Пароль</label>
+            <PasswordInput
+              id="admin-login-password"
+              name="password"
+              autoComplete="current-password"
               placeholder="Введите пароль"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -82,12 +97,20 @@ function AdminLogin() {
           </button>
         </form>
 
-        
+        <div className="auth-footer">
+          <p>
+            <Link to="/login">Обычный вход</Link>
+            {' · '}
+            <Link to="/">На главную</Link>
+          </p>
+        </div>
 
         <div className="admin-hint">
           <i className="fas fa-info-circle"></i>
-          <span>Обратитесь к администратору для получения ключа и пароля</span>
+          <span>Доступ только для пользователей с ролью admin или superadmin</span>
         </div>
+
+        <CopyrightNotice />
       </div>
     </div>
   );

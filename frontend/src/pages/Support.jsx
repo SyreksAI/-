@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { post } from '../utils/api';
+import { LEGAL_INFO } from '../utils/legalInfo';
 
 function Support() {
   const [formData, setFormData] = useState({
@@ -72,14 +73,9 @@ function Support() {
                 <i className="fas fa-envelope"></i>
                 <div>
                   <strong>Email</strong>
-                  <p>support@dubpar.ru</p>
-                </div>
-              </div>
-              <div className="support-channel">
-                <i className="fas fa-telegram"></i>
-                <div>
-                  <strong>Telegram</strong>
-                  <p>@dubpar_support</p>
+                  <p>
+                    <a href={`mailto:${LEGAL_INFO.supportEmail}`}>{LEGAL_INFO.supportEmail}</a>
+                  </p>
                 </div>
               </div>
               <div className="support-channel">

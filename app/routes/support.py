@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
@@ -23,9 +24,9 @@ class SupportRequestUpdate(BaseModel):
 
 # ===== ПОЛЬЗОВАТЕЛЬСКАЯ ЧАСТЬ =====
 @router.post("/")
-def create_support_request(
+async def create_support_request(
     request: SupportRequestCreate,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Создать обращение в поддержку (доступно всем)"""
     new_request = SupportRequest(
@@ -37,8 +38,8 @@ def create_support_request(
         status="new"
     )
     db.add(new_request)
-    db.commit()
-    db.refresh(new_request)
+    await db.commit()
+    await db.refresh(new_request)
     
     return {
         "id": new_request.id,
@@ -47,9 +48,9 @@ def create_support_request(
 
 # ===== АДМИНСКАЯ ЧАСТЬ =====
 @router.get("/")
-def get_support_requests(
+async def get_support_requests(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     status: Optional[str] = None,
     skip: int = 0,
     limit: int = 100
@@ -58,66 +59,76 @@ def get_support_requests(
     if current_user.role not in ['admin', 'moderator']:
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    query = db.query(SupportRequest)
+    stmt = select(SupportRequest)
     if status:
-        query = query.filter(SupportRequest.status == status)
+        stmt = stmt.where(SupportRequest.status == status)
     
-    return query.order_by(SupportRequest.created_at.desc()).offset(skip).limit(limit).all()
+    return (
+        await db.execute(
+            stmt.order_by(SupportRequest.created_at.desc()).offset(skip).limit(limit)
+        )
+    ).scalars().all()
 
 @router.get("/{request_id}")
-def get_support_request(
+async def get_support_request(
     request_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Получить конкретное обращение"""
     if current_user.role not in ['admin', 'moderator']:
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    request = db.query(SupportRequest).filter(SupportRequest.id == request_id).first()
+    request = (
+        await db.execute(select(SupportRequest).where(SupportRequest.id == request_id))
+    ).scalar_one_or_none()
     if not request:
         raise HTTPException(status_code=404, detail="Обращение не найдено")
     
     return request
 
 @router.put("/{request_id}")
-def update_support_request(
+async def update_support_request(
     request_id: int,
     update: SupportRequestUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Обновить статус обращения (только для админов)"""
     if current_user.role not in ['admin', 'moderator']:
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    request = db.query(SupportRequest).filter(SupportRequest.id == request_id).first()
+    request = (
+        await db.execute(select(SupportRequest).where(SupportRequest.id == request_id))
+    ).scalar_one_or_none()
     if not request:
         raise HTTPException(status_code=404, detail="Обращение не найдено")
     
     request.status = update.status
     request.updated_at = datetime.now()
     
-    db.commit()
-    db.refresh(request)
+    await db.commit()
+    await db.refresh(request)
     
     return {"message": f"Статус обновлён на {update.status}"}
 
 @router.delete("/{request_id}")
-def delete_support_request(
+async def delete_support_request(
     request_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Удалить обращение (только для админов)"""
     if current_user.role not in ['admin', 'moderator']:
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    request = db.query(SupportRequest).filter(SupportRequest.id == request_id).first()
+    request = (
+        await db.execute(select(SupportRequest).where(SupportRequest.id == request_id))
+    ).scalar_one_or_none()
     if not request:
         raise HTTPException(status_code=404, detail="Обращение не найдено")
     
-    db.delete(request)
-    db.commit()
+    await db.delete(request)
+    await db.commit()
     
     return {"message": "Обращение удалено"}

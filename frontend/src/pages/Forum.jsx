@@ -1,23 +1,65 @@
 // frontend/src/pages/Forum.jsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import '../static/partials/forum.scss';
+import '../static/partials/chat-attachments.scss';
+import ChatVirtualList from '../components/ChatVirtualList';
+import { createPortal } from 'react-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import websocketService from '../services/websocket';
 import NotificationToast from '../components/NotificationToast';
 import { post, get, put, del } from '../utils/api';
 import ImageModal from '../components/ImageModal';
-import { formatTime, formatDate, formatFileSize, getFileIcon, getFileColor } from '../utils/helpers';
+import AttachmentStaging from '../components/AttachmentStaging';
+import ChatEmojiPicker from '../components/ChatEmojiPicker';
+import ChatMessengerWallpaper from '../components/ChatMessengerWallpaper';
 import { useFiles } from '../hooks/useFiles';
 import { useChat } from '../hooks/useChat';
 import { MESSAGES } from '../utils/messages';
+import {
+  normalizeChatMessage,
+  mergeChatMessages,
+  compareChatMessages,
+  upsertLiveMessage,
+  upsertLiveMessages,
+} from '../utils/chatMessage';
+import {
+  saveCachedMessages,
+  loadCachedMessages,
+  loadCachedUserChats,
+  saveCachedUserChats,
+  loadSelectedChat,
+  saveSelectedChat,
+} from '../utils/chatCache';
+import { useAuth } from '../context/AuthProvider';
+import useActivityTracker from '../hooks/useActivityTracker';
+import UserFooter from '../components/UserFooter';
+import { CACHE_TTL, forumCacheKey } from '../utils/requestCache';
+import { UPLOAD_ACCEPT } from '../utils/uploadLimits';
+import { retainUploadPreview } from '../utils/uploadPreviewCache';
+
+const getErrorMessage = (error, fallback) => {
+  if (!error) return fallback;
+  return error.message || fallback;
+};
 
 function Forum() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user, logout: authLogout } = useAuth();
+  useActivityTracker();
 
   // ===== ОСНОВНЫЕ СОСТОЯНИЯ =====
-  const [user, setUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] = useState(() => {
+    try {
+      const raw = localStorage.getItem('users');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [selectedChat, setSelectedChat] = useState('general');
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -33,6 +75,7 @@ function Forum() {
   const [notificationCount, setNotificationCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
   const [mutualSubscriptions, setMutualSubscriptions] = useState({});
+  const [approvedFollowers, setApprovedFollowers] = useState([]);
 
   // ===== СОСТОЯНИЯ ЧАТОВ =====
   const [pinnedChats, setPinnedChats] = useState([]);
@@ -46,6 +89,8 @@ function Forum() {
   const [imageModalIndex, setImageModalIndex] = useState(0);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [searchUser, setSearchUser] = useState('');
+  const [addUserSearchResults, setAddUserSearchResults] = useState([]);
+  const [addUserSearchLoading, setAddUserSearchLoading] = useState(false);
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedGroupMembers, setSelectedGroupMembers] = useState([]);
@@ -72,25 +117,39 @@ function Forum() {
   // ===== УВЕДОМЛЕНИЯ =====
   const [notifications, setNotifications] = useState([]);
   const [showBrowserPermission, setShowBrowserPermission] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
 
   // ===== REFS =====
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const searchInputRef = useRef(null);
   const addButtonRef = useRef(null);
+  const actionMenuRef = useRef(null);
+  const chatContextMenuRef = useRef(null);
   const messageListRef = useRef(null);
+  const chatListRef = useRef(null);
+  const messagesRef = useRef(messages);
+  const selectedChatRef = useRef(selectedChat);
+  const isLoadingOlderRef = useRef(false);
+  const forceScrollRef = useRef(true);
+
+  useEffect(() => {
+    selectedChatRef.current = selectedChat;
+  }, [selectedChat]);
 
   // ===== ХУКИ =====
   const {
+    stagedItems,
     selectedFiles,
-    uploadProgress,
     isUploading,
-    filePreviews,
     getFileUrl,
-    uploadFiles,
+    uploadStaged,
     handleFileSelect,
-    removeFile,
-    clearFiles
+    handlePaste,
+    handleDrop,
+    removeStaged,
+    clearStaged,
+    retryStaged,
   } = useFiles(user, selectedChat);
 
   const {
@@ -99,20 +158,35 @@ function Forum() {
     unreadCounts,
     setUnreadCounts,
     typingUsers,
+    setTypingUsers,
     loadChatHistory,
     sendMessage: chatSendMessage,
     editMessage,
     deleteMessage,
     sendTyping,
     handleNewMessage,
-    messagesEndRef
   } = useChat(user, selectedChat, setMessages);
 
   // ===== УВЕДОМЛЕНИЯ =====
   const addNotification = useCallback((message, type = 'info', duration = 4000) => {
     const id = Date.now() + Math.random();
     setNotifications(prev => [...prev, { id, message, type, duration }]);
-    setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), duration);
+  }, []);
+
+  const removeNotification = useCallback((id) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  }, []);
+
+  const applyIncomingMessages = useCallback((rawMessages, userId, { live = false } = {}) => {
+    if (!Array.isArray(rawMessages) || rawMessages.length === 0) return;
+    const incoming = rawMessages.map((item) => normalizeChatMessage(item.message ?? item));
+    setMessages((prev) => {
+      const merged = live
+        ? upsertLiveMessages(prev, incoming)
+        : mergeChatMessages(prev, incoming);
+      if (userId) saveCachedMessages(userId, merged);
+      return merged;
+    });
   }, []);
 
   // ===== ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ =====
@@ -123,16 +197,54 @@ function Forum() {
       localStorage.setItem('users', JSON.stringify(data));
     } catch (error) {
       console.error('Error loading users:', error);
-      addNotification(MESSAGES.LOAD_ERROR, 'error');
+      addNotification(getErrorMessage(error, MESSAGES.LOAD_ERROR), 'error');
     }
   }, [addNotification]);
+
+  const loadUserGroups = useCallback(async (userId) => {
+    if (!userId) return;
+    try {
+      const groups = await get(`/api/groups/user/${userId}`, {}, {
+        cacheKey: forumCacheKey(userId, 'groups'),
+        cacheTtl: CACHE_TTL.forumInit,
+      });
+      const serverGroups = Array.isArray(groups) ? groups : [];
+      const groupIds = new Set(serverGroups.map((group) => group.id));
+      const savedChats = loadCachedUserChats(userId);
+      const merged = savedChats.filter((chat) => !chat.isGroup || groupIds.has(chat.id));
+
+      serverGroups.forEach((group) => {
+        if (!merged.some((chat) => chat.id === group.id)) {
+          merged.push(group);
+        }
+      });
+      setSelectedUsers(merged);
+      saveCachedUserChats(userId, merged);
+    } catch (error) {
+      console.error('Error loading groups:', error);
+    }
+  }, []);
+
+  const loadApprovedFollowers = useCallback(async (userId) => {
+    if (!userId) return;
+    try {
+      const data = await get(`/api/users/${userId}/followers`, {}, {
+        cacheKey: forumCacheKey(userId, 'followers'),
+        cacheTtl: CACHE_TTL.forumInit,
+      });
+      setApprovedFollowers(Array.isArray(data) ? data.map((f) => f.id) : []);
+    } catch (error) {
+      console.error('Error loading followers:', error);
+    }
+  }, []);
 
   // ===== ПОДПИСКИ =====
   const loadPendingSubscriptions = useCallback(async (userId) => {
     if (!userId) return;
     try {
-      const data = await get(`/api/users/${userId}/pending-subscriptions`, {
-        'X-User-ID': String(userId)
+      const data = await get(`/api/users/${userId}/pending-subscriptions`, {}, {
+        cacheKey: forumCacheKey(userId, 'pending'),
+        cacheTtl: CACHE_TTL.forumInit,
       });
       setPendingSubscriptions(Array.isArray(data) ? data : []);
       setNotificationCount(data.length);
@@ -144,8 +256,9 @@ function Forum() {
   const loadAllSubscriptionStatuses = useCallback(async (userId) => {
     if (!userId) return;
     try {
-      const data = await get(`/api/users/${userId}/subscriptions`, {
-        'X-User-ID': String(userId)
+      const data = await get(`/api/users/${userId}/subscriptions`, {}, {
+        cacheKey: forumCacheKey(userId, 'subscriptions'),
+        cacheTtl: CACHE_TTL.forumInit,
       });
 
       const statuses = {};
@@ -161,9 +274,7 @@ function Forum() {
     const uid = currentUserId || user?.id;
     if (!uid || !targetUserId || subscriptionStatuses[targetUserId] === 'approved') return;
     try {
-      const data = await get(`/api/users/subscriptions/status/${targetUserId}`, {
-        'X-User-ID': String(uid)
-      });
+      const data = await get(`/api/users/subscriptions/status/${targetUserId}`);
 
       setSubscriptionStatuses(prev => {
         const updated = { ...prev, [targetUserId]: data.status };
@@ -193,8 +304,7 @@ function Forum() {
 
     try {
       await post('/api/users/subscribe',
-        { following_id: targetUserId },
-        { 'X-User-ID': String(user.id) }
+        { following_id: targetUserId }
       );
 
       setSubscriptionStatuses(prev => ({ ...prev, [targetUserId]: 'pending' }));
@@ -203,35 +313,42 @@ function Forum() {
       if (foundUser && !selectedUsers.some(u => u.id === targetUserId)) {
         const updated = [...selectedUsers, foundUser];
         setSelectedUsers(updated);
-        localStorage.setItem('userChats', JSON.stringify(updated));
+        saveCachedUserChats(user.id, updated);
       }
       addNotification(MESSAGES.SUBSCRIPTION_REQUESTED, 'info', 3000);
     } catch (error) {
       console.error('Subscribe error:', error);
-      if (error.response && error.response.data && error.response.data.detail) {
-        // Если ошибка говорит, что уже подписан или запрос отправлен
-        if (error.response.data.detail.includes('уже подписаны') || 
-            error.response.data.detail.includes('already subscribed')) {
-          setSubscriptionStatuses(prev => ({ ...prev, [targetUserId]: 'approved' }));
-          addNotification('Вы уже подписаны на этого пользователя', 'info', 3000);
-        } else if (error.response.data.detail.includes('Запрос уже отправлен')) {
-          setSubscriptionStatuses(prev => ({ ...prev, [targetUserId]: 'pending' }));
-          addNotification('Запрос на подписку уже отправлен', 'info', 3000);
-        } else {
-          addNotification(`${MESSAGES.SUBSCRIPTION_ERROR}: ${error.response.data.detail}`, 'error', 4000);
-        }
+      const message = getErrorMessage(error, MESSAGES.SUBSCRIPTION_ERROR);
+      if (message.includes('уже подписаны') || message.toLowerCase().includes('already subscribed')) {
+        setSubscriptionStatuses(prev => ({ ...prev, [targetUserId]: 'approved' }));
+        addNotification('Вы уже подписаны на этого пользователя', 'info', 3000);
+      } else if (message.includes('Запрос уже отправлен')) {
+        setSubscriptionStatuses(prev => ({ ...prev, [targetUserId]: 'pending' }));
+        addNotification('Запрос на подписку уже отправлен', 'info', 3000);
       } else {
-        addNotification(MESSAGES.SUBSCRIPTION_ERROR, 'error', 4000);
+        addNotification(`${MESSAGES.SUBSCRIPTION_ERROR}: ${message}`, 'error', 4000);
       }
     }
   }, [user, users, selectedUsers, subscriptionStatuses, addNotification]);
 
+  const handleRejectSubscription = useCallback(async (subscriptionId, followerId) => {
+    if (!user?.id) return;
+    try {
+      await put(`/api/users/subscriptions/${subscriptionId}/reject`, {});
+
+      setPendingSubscriptions(prev => prev.filter(s => s.id !== subscriptionId));
+      setNotificationCount(prev => Math.max(0, prev - 1));
+      setSubscriptionStatuses(prev => ({ ...prev, [followerId]: 'rejected' }));
+      addNotification('Запрос на подписку отклонён', 'info', 3000);
+    } catch (error) {
+      addNotification(getErrorMessage(error, MESSAGES.SUBSCRIPTION_ERROR), 'error', 4000);
+    }
+  }, [user, addNotification]);
+
   const handleApproveSubscription = useCallback(async (subscriptionId, followerId) => {
     if (!user?.id) return;
     try {
-      await put(`/api/users/subscriptions/${subscriptionId}/approve`, {}, {
-        'X-User-ID': String(user.id)
-      });
+      await put(`/api/users/subscriptions/${subscriptionId}/approve`, {});
 
       setPendingSubscriptions(prev => prev.filter(s => s.id !== subscriptionId));
       setNotificationCount(prev => Math.max(0, prev - 1));
@@ -240,13 +357,15 @@ function Forum() {
       if (follower && !selectedUsers.some(u => u.id === followerId)) {
         setSelectedUsers(prev => {
           const updated = [...prev, follower];
-          localStorage.setItem('userChats', JSON.stringify(updated));
+          saveCachedUserChats(user.id, updated);
           return updated;
         });
       }
 
       setSelectedChat(`private_${Math.min(user.id, followerId)}_${Math.max(user.id, followerId)}`);
       setShowNotifications(false);
+      setSubscriptionStatuses(prev => ({ ...prev, [followerId]: 'approved' }));
+      setApprovedFollowers(prev => (prev.includes(followerId) ? prev : [...prev, followerId]));
       addNotification(MESSAGES.SUBSCRIPTION_APPROVED, 'success', 4000);
     } catch (error) {
       addNotification(`${MESSAGES.SUBSCRIPTION_ERROR}: ${error.message || ''}`, 'error', 4000);
@@ -306,7 +425,7 @@ function Forum() {
     ];
   }, [user, selectedUsers, pinnedChats, customChatNames]);
 
-  const chats = getChats();
+  const chats = useMemo(() => getChats(), [getChats]);
   const currentChat = chats.find(c => c.id === selectedChat);
 
   const getTargetUserId = useCallback(() => {
@@ -316,6 +435,52 @@ function Forum() {
   }, [selectedChat, user]);
 
   const targetUserId = getTargetUserId();
+  const hasMutualSubscription = Boolean(
+    targetUserId
+    && subscriptionStatuses[targetUserId] === 'approved'
+    && approvedFollowers.includes(targetUserId)
+  );
+  const canSendPrivateMessage = currentChat?.type !== 'private' || hasMutualSubscription;
+  const privateChatBlockedReason = (() => {
+    if (currentChat?.type !== 'private' || canSendPrivateMessage || !targetUserId) return null;
+    const status = subscriptionStatuses[targetUserId] || 'none';
+    if (status === 'pending') return 'Ожидается подтверждение подписки. Сообщения будут доступны после взаимного одобрения.';
+    if (status === 'rejected') return 'Запрос на подписку был отклонён. Отправьте новый запрос, чтобы начать переписку.';
+    return 'Для личных сообщений нужна взаимная подписка. Отправьте запрос на подписку.';
+  })();
+
+  const activeTypingUsers = Object.entries(typingUsers)
+    .filter(([userId, timestamp]) => Date.now() - timestamp < 3000 && Number(userId) !== user?.id)
+    .map(([userId]) => users.find(u => u.id === Number(userId))?.name || 'Кто-то');
+
+  // ===== ПОИСК В МОДАЛКЕ ДОБАВЛЕНИЯ ПОЛЬЗОВАТЕЛЯ =====
+  useEffect(() => {
+    if (!showAddUserModal) {
+      setAddUserSearchResults([]);
+      return undefined;
+    }
+
+    const query = searchUser.trim();
+    if (query.length < 2) {
+      setAddUserSearchResults([]);
+      return undefined;
+    }
+
+    const timer = setTimeout(async () => {
+      setAddUserSearchLoading(true);
+      try {
+        const results = await get(`/api/users/search?q=${encodeURIComponent(query)}`);
+        setAddUserSearchResults(Array.isArray(results) ? results : []);
+      } catch (error) {
+        console.error('Add user search error:', error);
+        setAddUserSearchResults([]);
+      } finally {
+        setAddUserSearchLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchUser, showAddUserModal]);
 
   const getLastMessage = useCallback((chatId) => {
     const msgs = messages.filter(m => m.chatId === chatId && !m.isSystem);
@@ -341,54 +506,63 @@ function Forum() {
   }, [users]);
 
   // ===== ИНИЦИАЛИЗАЦИЯ =====
-  const initialized = useRef(false);
+  const initializedUserIdRef = useRef(null);
 
   useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
-
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-    if (currentUser && currentUser.id) {
-      setUser(currentUser);
-
-      try {
-        if (typeof websocketService.isConnected === 'function') {
-          if (!websocketService.isConnected()) {
-            websocketService.connect(currentUser.id);
-          }
-        } else {
-          websocketService.connect(currentUser.id);
-        }
-      } catch (error) {
-        console.error('Ошибка подключения WebSocket:', error);
-      }
-
-      const loadData = async () => {
-        await loadPendingSubscriptions(currentUser.id);
-        await loadAllSubscriptionStatuses(currentUser.id);
-        await loadAllUsers();
-      };
-      loadData();
-
-      const savedChats = JSON.parse(localStorage.getItem('userChats') || '[]');
-      setSelectedUsers(savedChats);
-
-      savedChats.forEach(chat => {
-        if (!chat.isGroup) {
-          const chatId = `private_${Math.min(currentUser.id, chat.id)}_${Math.max(currentUser.id, chat.id)}`;
-          loadChatHistory(chatId);
-        } else {
-          loadChatHistory(chat.id);
-        }
-      });
-
-      setPinnedChats(JSON.parse(localStorage.getItem('pinnedChats') || '[]'));
-      setCustomChatNames(JSON.parse(localStorage.getItem('customChatNames') || '{}'));
+    if (!user?.id) {
+      initializedUserIdRef.current = null;
+      setSelectedChat(null);
+      setSelectedUsers([]);
+      setMessages([]);
+      return;
     }
-    const targetChat = localStorage.getItem('selectedChat');
-    setSelectedChat(targetChat || 'general');
-    localStorage.removeItem('selectedChat');
-  }, [loadAllUsers, loadPendingSubscriptions, loadAllSubscriptionStatuses, loadChatHistory]);
+
+    if (initializedUserIdRef.current === user.id) return;
+    initializedUserIdRef.current = user.id;
+
+    setMessages(loadCachedMessages(user.id));
+    setSelectedUsers(loadCachedUserChats(user.id));
+    setSelectedChat(loadSelectedChat(user.id) || 'general');
+
+    try {
+      if (!websocketService.isConnected) {
+        websocketService.connect(user.id);
+      }
+    } catch (error) {
+      console.error('Ошибка подключения WebSocket:', error);
+    }
+
+    Promise.all([
+      loadPendingSubscriptions(user.id),
+      loadAllSubscriptionStatuses(user.id),
+      loadUserGroups(user.id),
+      loadApprovedFollowers(user.id),
+    ]).catch((error) => console.error('Forum init load error:', error));
+
+    setPinnedChats(JSON.parse(localStorage.getItem('pinnedChats') || '[]'));
+    setCustomChatNames(JSON.parse(localStorage.getItem('customChatNames') || '{}'));
+  }, [user?.id, loadPendingSubscriptions, loadAllSubscriptionStatuses, loadUserGroups, loadApprovedFollowers]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    saveSelectedChat(user.id, selectedChat);
+  }, [user?.id, selectedChat]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const chatIdFromNav = location.state?.chatId;
+    if (chatIdFromNav) {
+      setSelectedChat(chatIdFromNav);
+    }
+  }, [user?.id, location.state?.chatId]);
+
+  useEffect(() => {
+    if (!user?.id || !selectedChat) return;
+    const chatIds = new Set(chats.map((chat) => chat.id));
+    if (!chatIds.has(selectedChat)) {
+      setSelectedChat('general');
+    }
+  }, [user?.id, selectedChat, chats]);
 
   // ===== WEBSOCKET =====
   useEffect(() => {
@@ -397,42 +571,46 @@ function Forum() {
     const handleMessage = (data) => {
       if (!isMounted) return;
 
-      if (data.type === 'new_message' || data.type === 'history') {
-        const rawMsg = data.message;
-        const msg = {
-          id: rawMsg.id,
-          chatId: rawMsg.chat_id || rawMsg.chatId || 'general',
-          userId: rawMsg.user_id || rawMsg.userId,
-          username: rawMsg.username,
-          name: rawMsg.name || rawMsg.user_name,
-          text: rawMsg.text,
-          isSystem: rawMsg.is_system || rawMsg.isSystem || false,
-          timestamp: rawMsg.timestamp,
-          files: rawMsg.files || [],
-          reply_to: rawMsg.reply_to || null,
-          order: rawMsg.order || 0
-        };
-        setMessages(prev => {
-          if (prev.some(m => m.id === msg.id)) return prev;
-          const updated = [...prev, msg];
-          // ✅ Сортируем по order
-          updated.sort((a, b) => {
-            if (a.order !== undefined && b.order !== undefined) {
-              return (a.order || 0) - (b.order || 0);
-            }
-            const timeA = new Date(a.timestamp).getTime();
-            const timeB = new Date(b.timestamp).getTime();
-            if (timeA !== timeB) return timeA - timeB;
-            return (parseInt(a.id) || 0) - (parseInt(b.id) || 0);
-          });
-          return updated;
-        });
+      if (data.type === 'history_batch') {
+        applyIncomingMessages(data.messages || [], user?.id);
+      } else if (data.type === 'new_message' || data.type === 'history') {
+        const msg = normalizeChatMessage(data.message);
+        applyIncomingMessages([msg], user?.id, { live: data.type === 'new_message' });
 
-        if (data.type === 'new_message' && msg.chatId !== selectedChat && msg.userId !== user?.id) {
+        if (
+          data.type === 'new_message'
+          && !msg.isSystem
+          && msg.chatId !== selectedChatRef.current
+          && msg.userId !== user?.id
+        ) {
           setUnreadCounts(prev => ({ ...prev, [msg.chatId]: (prev[msg.chatId] || 0) + 1 }));
-          if (!msg.isSystem) {
-            addNotification(`${msg.username}: ${msg.text.substring(0, 30)}...`, 'message', 5000);
-          }
+          addNotification(`${msg.username}: ${msg.text.substring(0, 30)}...`, 'message', 5000);
+        }
+      } else if (data.type === 'message_edited') {
+        const edited = data.message || {};
+        const messageId = edited.id ?? data.message_id;
+        const newText = edited.text ?? data.new_text;
+        if (messageId) {
+          setMessages((prev) => {
+            const updated = prev.map((m) =>
+              m.id === messageId ? { ...m, text: newText, edited: true } : m
+            );
+            if (user?.id) saveCachedMessages(user.id, updated);
+            return updated;
+          });
+        }
+      } else if (data.type === 'message_deleted') {
+        const messageId = data.message_id;
+        if (messageId) {
+          setMessages((prev) => {
+            const updated = prev.filter((m) => m.id !== messageId);
+            if (user?.id) saveCachedMessages(user.id, updated);
+            return updated;
+          });
+        }
+      } else if (data.type === 'typing') {
+        if (data.chat_id === selectedChatRef.current && data.user_id !== user?.id) {
+          setTypingUsers(prev => ({ ...prev, [data.user_id]: Date.now() }));
         }
       } else if (data.type === 'connection_status') {
         setIsConnected(data.status === 'connected');
@@ -454,28 +632,47 @@ function Forum() {
           addNotification(`${name} хочет подписаться на вас`, 'subscription', 7000);
         } else if (data.notification_type === 'subscription_approved') {
           const { following_id, follower_id } = data.data;
-          setSubscriptionStatuses(prev => {
-            const updated = { ...prev, [following_id]: 'approved', [follower_id]: 'approved' };
-            localStorage.setItem('subscriptionStatuses', JSON.stringify(updated));
-            return updated;
-          });
+          if (user?.id === follower_id) {
+            setSubscriptionStatuses(prev => {
+              const updated = { ...prev, [following_id]: 'approved' };
+              localStorage.setItem('subscriptionStatuses', JSON.stringify(updated));
+              return updated;
+            });
+            setApprovedFollowers(prev => (prev.includes(following_id) ? prev : [...prev, following_id]));
+          }
+          if (user?.id === following_id) {
+            setSubscriptionStatuses(prev => {
+              const updated = { ...prev, [follower_id]: 'approved' };
+              localStorage.setItem('subscriptionStatuses', JSON.stringify(updated));
+              return updated;
+            });
+            setApprovedFollowers(prev => (prev.includes(follower_id) ? prev : [...prev, follower_id]));
+          }
           setMutualSubscriptions(prev => ({ ...prev, [follower_id]: true, [following_id]: true }));
           addNotification(MESSAGES.SUBSCRIPTION_APPROVED, 'success', 4000);
         } else if (data.notification_type === 'group_added') {
           const { group, added_by } = data.data;
-          const savedChats = JSON.parse(localStorage.getItem('userChats') || '[]');
+          const savedChats = loadCachedUserChats(user?.id);
           if (!savedChats.some(c => c.id === group.id)) {
             savedChats.push(group);
-            localStorage.setItem('userChats', JSON.stringify(savedChats));
+            saveCachedUserChats(user.id, savedChats);
             setSelectedUsers(savedChats);
             addNotification(`Вас добавили в группу "${group.name}" пользователем ${added_by}`, 'success', 5000);
             loadChatHistory(group.id);
           }
         }
       } else if (data.type === 'error') {
+        if (data.message === 'Доступ запрещен') {
+          if (selectedChatRef.current && selectedChatRef.current !== 'general') {
+            setSelectedChat('general');
+          }
+          return;
+        }
         addNotification(data.message, 'error', 5000);
       }
     };
+
+    setIsConnected(websocketService.isConnected);
 
     try {
       if (typeof websocketService.onMessage === 'function') {
@@ -488,7 +685,41 @@ function Forum() {
     } catch (error) {
       console.error('Ошибка подписки на WebSocket сообщения:', error);
     }
-  }, [selectedChat, user]);
+  }, [user, applyIncomingMessages, addNotification, setIsConnected, loadChatHistory]);
+
+  const canLoadChatHistory = useCallback((chatId) => {
+    if (!chatId || chatId === 'general') return true;
+    const chat = chats.find((item) => item.id === chatId);
+    if (chat?.type === 'private') {
+      const parts = chatId.split('_');
+      if (parts.length !== 3) return false;
+      const otherId = parts[1] === String(user?.id) ? parseInt(parts[2], 10) : parseInt(parts[1], 10);
+      return Boolean(
+        otherId
+        && subscriptionStatuses[otherId] === 'approved'
+        && approvedFollowers.includes(otherId)
+      );
+    }
+    return true;
+  }, [chats, user?.id, subscriptionStatuses, approvedFollowers]);
+
+  // ===== ДОГРУЗКА ИСТОРИИ ДЛЯ ПУСТОГО ЧАТА (fallback) =====
+  useEffect(() => {
+    if (!user?.id || !selectedChat) return undefined;
+    if (!canLoadChatHistory(selectedChat)) return undefined;
+    const hasMessages = messages.some((m) => m.chatId === selectedChat);
+    if (hasMessages) return undefined;
+
+    loadChatHistory(selectedChat);
+    return undefined;
+  }, [selectedChat, user?.id, messages, loadChatHistory, canLoadChatHistory]);
+
+  // ===== КЭШ СООБЩЕНИЙ =====
+  useEffect(() => {
+    if (!user?.id || messages.length === 0) return undefined;
+    const timer = setTimeout(() => saveCachedMessages(user.id, messages), 300);
+    return () => clearTimeout(timer);
+  }, [messages, user?.id]);
 
   // ===== ПОИСК =====
   useEffect(() => {
@@ -499,25 +730,10 @@ function Forum() {
         setShowSearchResults(true);
         
         try {
-          // Поиск пользователей
-          const usersRes = await fetch(`/api/users/search?q=${searchQuery}`, {
-            headers: { 'X-User-ID': String(user?.id || '') }
-          });
-          
-          let users = [];
-          if (usersRes.ok) {
-            users = await usersRes.json();
-          }
-          
-          // Поиск групп (только если пользователь в них состоит)
-          const groupsRes = await fetch(`/api/groups/search?q=${searchQuery}`, {
-            headers: { 'X-User-ID': String(user?.id || '') }
-          });
-          
-          let groups = [];
-          if (groupsRes.ok) {
-            groups = await groupsRes.json();
-          }
+          const [users, groups] = await Promise.all([
+            get(`/api/users/search?q=${encodeURIComponent(searchQuery)}`),
+            get(`/api/groups/search?q=${encodeURIComponent(searchQuery)}`),
+          ]);
           
           // Сортируем пользователей: сначала те, с кем есть подписка
           const sortedUsers = users.sort((a, b) => {
@@ -793,6 +1009,23 @@ function Forum() {
     setReplyToMessage(null);
   }, []);
 
+  const insertEmoji = useCallback((emoji) => {
+    const input = inputRef.current;
+    if (!input) {
+      setNewMessage((prev) => `${prev}${emoji}`);
+      return;
+    }
+    const start = input.selectionStart ?? newMessage.length;
+    const end = input.selectionEnd ?? newMessage.length;
+    const next = `${newMessage.slice(0, start)}${emoji}${newMessage.slice(end)}`;
+    setNewMessage(next);
+    requestAnimationFrame(() => {
+      input.focus();
+      const pos = start + emoji.length;
+      input.setSelectionRange(pos, pos);
+    });
+  }, [newMessage]);
+
   // ===== ОБРАБОТЧИКИ ФАЙЛОВ =====
   const handleDownloadFile = useCallback((file) => {
     if (!file) return;
@@ -825,12 +1058,13 @@ function Forum() {
   // ===== ПРОСМОТР ФОТО/ВИДЕО =====
   const openImageViewer = useCallback((files, index) => {
     const mediaFiles = files.filter(file => {
-      const isImage = file.isImage ||
-        (file.type && file.type.startsWith('image/')) ||
-        (file.name && /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i.test(file.name));
-      const isVideo = file.isVideo ||
-        (file.type && file.type.startsWith('video/')) ||
-        (file.name && /\.(mp4|avi|mov|wmv|flv|mkv|webm)$/i.test(file.name));
+      const mime = file.mime || file.type || '';
+      const isImage = file.kind === 'image' || file.isImage
+        || mime.startsWith('image/')
+        || (file.name && /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i.test(file.name));
+      const isVideo = file.kind === 'video' || file.isVideo
+        || mime.startsWith('video/')
+        || (file.name && /\.(mp4|avi|mov|wmv|flv|mkv|webm)$/i.test(file.name));
       return isImage || isVideo;
     });
 
@@ -856,11 +1090,43 @@ function Forum() {
   }, [imageModalFiles.length]);
 
   // ===== ОТПРАВКА СООБЩЕНИЯ =====
+  const appendOptimisticMessage = useCallback((text, files = []) => {
+    if (!user?.id) return null;
+    const tempId = `pending-${Date.now()}`;
+
+    // Часы клиента могут отставать от сервера — держим сообщение последним в списке.
+    const newestInChat = (messagesRef.current || [])
+      .filter((m) => m.chatId === selectedChat)
+      .reduce((max, m) => Math.max(max, new Date(m.timestamp).getTime() || 0), 0);
+    const timestamp = new Date(Math.max(Date.now(), newestInChat + 1)).toISOString();
+
+    setMessages((prev) => {
+      const merged = upsertLiveMessage(prev, normalizeChatMessage({
+        id: tempId,
+        chat_id: selectedChat,
+        user_id: user.id,
+        username: user.username,
+        user_name: user.name,
+        text,
+        timestamp,
+        files,
+      }));
+      if (user?.id) saveCachedMessages(user.id, merged);
+      return merged;
+    });
+    return tempId;
+  }, [user, selectedChat]);
+
   const sendMessage = useCallback(async (e) => {
     e.preventDefault();
 
-    if (!user || !isConnected) {
+    const wsReady = isConnected || websocketService.isConnected;
+    if (!user || !wsReady) {
       addNotification(MESSAGES.NOT_CONNECTED, 'error', 3000);
+      return;
+    }
+    if (currentChat?.type === 'private' && !canSendPrivateMessage) {
+      addNotification(privateChatBlockedReason || 'Личные сообщения недоступны', 'warning', 4000);
       return;
     }
     if (!newMessage.trim() && selectedFiles.length === 0) {
@@ -875,22 +1141,19 @@ function Forum() {
 
     // Если есть файлы
     if (selectedFiles.length > 0) {
-      const uploadedFiles = await uploadFiles(selectedFiles);
+      let uploadedFiles;
+      try {
+        uploadedFiles = await uploadStaged();
+      } catch (err) {
+        addNotification(err?.message || MESSAGES.UPLOAD_ERROR, 'error', 6000);
+        return;
+      }
 
       const messageData = {
         type: 'message',
         text: newMessage.trim() || '',
         chat_id: selectedChat,
-        files: uploadedFiles.map(f => ({
-          originalName: f.originalName,
-          name: f.serverName || f.name,
-          url: f.path || f.url,
-          type: f.type,
-          size: f.size,
-          isImage: f.isImage || (f.type && f.type.startsWith('image/')),
-          isVideo: f.isVideo || (f.type && f.type.startsWith('video/')),
-          isAudio: f.isAudio || (f.type && f.type.startsWith('audio/'))
-        }))
+        attachment_ids: uploadedFiles.map((f) => f.id).filter(Boolean),
       };
 
       if (replyToMessage) {
@@ -898,21 +1161,41 @@ function Forum() {
           message_id: replyToMessage.id,
           text: replyToMessage.text,
           username: replyToMessage.username,
-          user_id: replyToMessage.userId
+          user_id: replyToMessage.userId,
         };
       }
 
-      // Отправляем через WebSocket с callback для обработки ответа
+      const previewByKey = new Map();
+      stagedItems.forEach((item) => {
+        if (!item.preview) return;
+        previewByKey.set(item.name, item.preview);
+        if (item.attachment?.id) previewByKey.set(item.attachment.id, item.preview);
+      });
+      const uploadedWithPreview = uploadedFiles.map((attachment) => {
+        const preview =
+          previewByKey.get(attachment.id)
+          || previewByKey.get(attachment.original_name || attachment.name)
+          || undefined;
+        if (preview && attachment.id) {
+          retainUploadPreview(attachment.id, preview);
+        }
+        return { ...attachment, preview };
+      });
+      const tempId = appendOptimisticMessage(messageData.text, uploadedWithPreview);
       const result = websocketService.sendMessage(messageData);
-      
+
       if (result) {
-        // Очищаем поля сразу после отправки
         setNewMessage('');
-        clearFiles();
+        clearStaged();
         setReplyToMessage(null);
         setEditingMessage(null);
-        setUnreadCounts(prev => ({ ...prev, [selectedChat]: 0 }));
+        setUnreadCounts((prev) => ({ ...prev, [selectedChat]: 0 }));
         addNotification(MESSAGES.FILE_UPLOAD_SUCCESS(uploadedFiles.length), 'success', 3000);
+      } else {
+        addNotification(MESSAGES.SEND_ERROR, 'error', 3000);
+        if (tempId) {
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        }
       }
       return;
     }
@@ -937,9 +1220,9 @@ function Forum() {
       messageData.recipient_id = targetUserId;
     }
 
-    // Отправляем через WebSocket с callback для обработки ответа
+    appendOptimisticMessage(messageData.text);
     const result = websocketService.sendMessage(messageData);
-    
+
     if (result) {
       setNewMessage('');
       setReplyToMessage(null);
@@ -948,7 +1231,7 @@ function Forum() {
     } else {
       addNotification(MESSAGES.SEND_ERROR, 'error', 3000);
     }
-  }, [user, isConnected, newMessage, selectedFiles, selectedChat, currentChat, targetUserId, uploadFiles, clearFiles, addNotification, editingMessage, submitEdit, replyToMessage]);
+  }, [user, isConnected, newMessage, selectedFiles, stagedItems, selectedChat, currentChat, targetUserId, uploadStaged, clearStaged, addNotification, editingMessage, submitEdit, replyToMessage, canSendPrivateMessage, privateChatBlockedReason, appendOptimisticMessage]);
 
 // ===== КОНТЕКСТНОЕ МЕНЮ ДЛЯ ЧАТА =====
   const handleContextMenu = useCallback((e, chat) => {
@@ -986,7 +1269,7 @@ function Forum() {
 
     const updated = selectedUsers.filter(u => u.id !== chatToRemove.id);
     setSelectedUsers(updated);
-    localStorage.setItem('userChats', JSON.stringify(updated));
+    saveCachedUserChats(user.id, updated);
 
     if (pinnedChats.includes(chatId)) {
       const newPinned = pinnedChats.filter(id => id !== chatId);
@@ -1058,13 +1341,11 @@ function Forum() {
     if (!window.confirm(MESSAGES.GROUP_LEAVE_CONFIRM(group.name))) return;
 
     try {
-      await del(`/api/groups/${groupId}/remove-member`, {
-        'X-User-ID': String(user.id)
-      });
+      await del(`/api/groups/${groupId}/remove-member`);
 
       const updated = selectedUsers.filter(u => u.id !== groupId);
       setSelectedUsers(updated);
-      localStorage.setItem('userChats', JSON.stringify(updated));
+      saveCachedUserChats(user.id, updated);
 
       if (pinnedChats.includes(groupId)) {
         const newPinned = pinnedChats.filter(id => id !== groupId);
@@ -1093,13 +1374,11 @@ function Forum() {
     if (!window.confirm(MESSAGES.GROUP_DELETE_CONFIRM)) return;
 
     try {
-      await del(`/api/groups/${groupId}`, {
-        'X-User-ID': String(user.id)
-      });
+      await del(`/api/groups/${groupId}`);
 
       const updated = selectedUsers.filter(u => u.id !== groupId);
       setSelectedUsers(updated);
-      localStorage.setItem('userChats', JSON.stringify(updated));
+      saveCachedUserChats(user.id, updated);
 
       if (pinnedChats.includes(groupId)) {
         const newPinned = pinnedChats.filter(id => id !== groupId);
@@ -1131,32 +1410,12 @@ function Forum() {
         {
           name: newGroupName.trim(),
           member_ids: selectedGroupMembers.map(u => u.id)
-        },
-        { 'X-User-ID': String(user.id) }
+        }
       );
 
       const updatedChats = [...selectedUsers, newGroup];
       setSelectedUsers(updatedChats);
-      localStorage.setItem('userChats', JSON.stringify(updatedChats));
-
-      const sysMsg1 = {
-        type: 'message',
-        text: `Группа "${newGroup.name}" создана`,
-        chat_id: newGroup.id,
-        is_system: true
-      };
-      websocketService.sendMessage(sysMsg1);
-
-      selectedGroupMembers.forEach(member => {
-        const memberUser = users.find(u => u.id === member);
-        const sysMsg2 = {
-          type: 'message',
-          text: `${user.name} добавил(а) ${memberUser ? memberUser.name : 'пользователя'} в группу`,
-          chat_id: newGroup.id,
-          is_system: true
-        };
-        websocketService.sendMessage(sysMsg2);
-      });
+      saveCachedUserChats(user.id, updatedChats);
 
       setSelectedChat(newGroup.id);
       setShowCreateGroupModal(false);
@@ -1181,7 +1440,7 @@ function Forum() {
     if (!alreadyExists) {
       const updated = [...selectedUsers, selectedUser];
       setSelectedUsers(updated);
-      localStorage.setItem('userChats', JSON.stringify(updated));
+      saveCachedUserChats(user.id, updated);
       addNotification(`Чат с ${selectedUser.name} добавлен`, 'success', 3000);
     }
 
@@ -1194,9 +1453,7 @@ function Forum() {
 
     try {
       // Проверяем статус подписки
-      const statusData = await get(`/api/users/subscriptions/status/${selectedUser.id}`, {
-        'X-User-ID': String(user.id)
-      });
+      const statusData = await get(`/api/users/subscriptions/status/${selectedUser.id}`);
       
       const currentStatus = statusData.status || 'none';
       setSubscriptionStatuses(prev => ({ ...prev, [selectedUser.id]: currentStatus }));
@@ -1204,8 +1461,7 @@ function Forum() {
       // Если подписки нет — отправляем запрос
       if (currentStatus === 'none') {
         await post('/api/users/subscribe',
-          { following_id: selectedUser.id },
-          { 'X-User-ID': String(user.id) }
+          { following_id: selectedUser.id }
         );
         setSubscriptionStatuses(prev => ({ ...prev, [selectedUser.id]: 'pending' }));
         addNotification(`Запрос на подписку отправлен пользователю ${selectedUser.name}`, 'info', 3000);
@@ -1216,43 +1472,57 @@ function Forum() {
       } else if (currentStatus === 'rejected') {
         // Если был отклонён — пробуем снова
         await post('/api/users/subscribe',
-          { following_id: selectedUser.id },
-          { 'X-User-ID': String(user.id) }
+          { following_id: selectedUser.id }
         );
         setSubscriptionStatuses(prev => ({ ...prev, [selectedUser.id]: 'pending' }));
         addNotification(`Запрос на подписку отправлен повторно пользователю ${selectedUser.name}`, 'info', 3000);
       }
     } catch (error) {
       console.error('Ошибка подписки:', error);
-      // Показываем понятную ошибку
-      if (error.response && error.response.data && error.response.data.detail) {
-        addNotification(`Ошибка: ${error.response.data.detail}`, 'error', 4000);
-      } else {
-        addNotification(MESSAGES.SUBSCRIPTION_ERROR, 'error');
-      }
+      addNotification(getErrorMessage(error, MESSAGES.SUBSCRIPTION_ERROR), 'error', 4000);
     }
   }, [user, selectedUsers, addNotification]);
 
-  // ===== АВТО-СКРОЛЛ ПРИ НОВЫХ СООБЩЕНИЯХ =====
   useEffect(() => {
-    if (messageListRef.current) {
-      messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
-    }
+    messagesRef.current = messages;
   }, [messages]);
 
-  // Добавьте после setSelectedChat
+  // Принудительный скролл вниз при открытии и смене чата
   useEffect(() => {
-    if (messageListRef.current) {
-      messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
-    }
+    forceScrollRef.current = true;
   }, [selectedChat]);
 
+  const handleMessageListScroll = useCallback(async () => {
+    const list = messageListRef.current;
+    if (!list || isLoadingOlderRef.current) return;
+    if (list.scrollTop > 80) return;
+    if (!canLoadChatHistory(selectedChat)) return;
+
+    const oldest = (messagesRef.current || [])
+      .filter((m) => m.chatId === selectedChat && !String(m.id).startsWith('pending-'))
+      .sort(compareChatMessages)[0];
+    if (!oldest) return;
+
+    isLoadingOlderRef.current = true;
+    const previousHeight = list.scrollHeight;
+    try {
+      const loaded = await loadChatHistory(selectedChat, { beforeId: oldest.id });
+      if (loaded > 0) {
+        // Сохраняем позицию просмотра: контент добавился сверху
+        requestAnimationFrame(() => {
+          list.scrollTop += list.scrollHeight - previousHeight;
+        });
+      }
+    } finally {
+      isLoadingOlderRef.current = false;
+    }
+  }, [selectedChat, loadChatHistory, canLoadChatHistory]);
+
   // ===== ВЫХОД =====
-  const handleLogout = useCallback(() => {
-    localStorage.removeItem('currentUser');
-    websocketService.disconnect();
+  const handleLogout = useCallback(async () => {
+    await authLogout();
     navigate('/login');
-  }, [navigate]);
+  }, [authLogout, navigate]);
 
   // ===== МЕНЮ ДЕЙСТВИЙ =====
   const toggleActionMenu = useCallback((e) => {
@@ -1264,6 +1534,10 @@ function Forum() {
     }
   }, [actionMenuPos]);
 
+  const closeOnBackdrop = useCallback((closeFn) => (e) => {
+    if (e.target === e.currentTarget) closeFn();
+  }, []);
+
   const toggleGroupMember = useCallback((u) => {
     if (selectedGroupMembers.find(m => m.id === u.id)) {
       setSelectedGroupMembers(prev => prev.filter(m => m.id !== u.id));
@@ -1271,210 +1545,6 @@ function Forum() {
       setSelectedGroupMembers(prev => [...prev, u]);
     }
   }, [selectedGroupMembers]);
-
-  // ===== РЕНДЕР СООБЩЕНИЙ =====
-  const renderMessages = useCallback(() => {
-      const chatMessages = messages
-        .filter(m => m.chatId === selectedChat)
-        .sort((a, b) => {
-          // ✅ Строго по order
-          const orderA = a.order !== undefined ? a.order : 0;
-          const orderB = b.order !== undefined ? b.order : 0;
-          if (orderA !== orderB) return orderA - orderB;
-          
-          // Если order одинаковый (не должно быть), то по времени
-          const timeA = new Date(a.timestamp).getTime();
-          const timeB = new Date(b.timestamp).getTime();
-          if (timeA !== timeB) return timeA - timeB;
-          
-          // Иначе по ID
-          return (parseInt(a.id) || 0) - (parseInt(b.id) || 0);
-        });
-
-    let lastDate = '';
-    return chatMessages.map((msg, index) => {
-      const msgDate = formatDate(msg.timestamp);
-      const showDate = msgDate !== lastDate;
-      lastDate = msgDate;
-      const isOwn = msg.userId === user?.id;
-      const isSystem = msg.isSystem;
-
-      const isForwarded = msg.forward && msg.forward.is_shared;
-      const forwardSender = isForwarded ? msg.forward.original_sender : null;
-      const forwardText = isForwarded ? msg.forward.original_text : null;
-
-      return (
-        <React.Fragment key={msg.id || index}>
-          {showDate && <div className="chat-date-divider"><span>{msgDate}</span></div>}
-
-          <div
-            className={`chat-message ${isOwn ? 'own' : ''} ${isSystem ? 'system' : ''} ${highlightedMessageId === msg.id ? 'highlighted' : ''}`}
-            data-message-id={msg.id}
-          >
-            {!isOwn && !isSystem && <div className="chat-message-avatar"><i className="fas fa-user-circle"></i></div>}
-            <div className="chat-message-content">
-              <div className="chat-message-bubble" style={{ position: 'relative' }}>
-
-                {!isSystem && (
-                  <div className={`message-hover-actions ${isOwn ? 'own' : ''}`}>
-                    <button
-                      className="message-hover-btn message-share-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openShareModal(msg);
-                      }}
-                      title="Поделиться"
-                    >
-                      <i className="fas fa-share-alt"></i>
-                    </button>
-                    <button
-                      className="message-hover-btn message-menu-btn"
-                      onClick={(e) => handleMessageMenuToggle(e, msg)}
-                      title="Ещё"
-                    >
-                      <i className="fas fa-ellipsis-v"></i>
-                    </button>
-                  </div>
-                )}
-
-                {!isOwn && !isSystem && (
-                  <Link to={`/profile/${msg.userId}`} className="chat-message-sender" style={{ textDecoration: 'none', color: '#7c3aed', fontWeight: '600' }}>
-                    {msg.username || msg.name}
-                  </Link>
-                )}
-
-                <div className="chat-message-text">
-                  {msg.reply_to && (
-                    <div
-                      className="message-reply-quote"
-                      onClick={() => {
-                        const replyMsgId = msg.reply_to.message_id;
-                        setHighlightedMessageId(replyMsgId);
-
-                        const element = document.querySelector(`[data-message-id="${replyMsgId}"]`);
-                        if (element) {
-                          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-
-                        setTimeout(() => {
-                          setHighlightedMessageId(null);
-                        }, 3000);
-                      }}
-                    >
-                      <div className="reply-quote-sender">
-                        <i className="fas fa-reply"></i>
-                        <span>{msg.reply_to.username}</span>
-                      </div>
-                      <div className="reply-quote-text">{msg.reply_to.text}</div>
-                    </div>
-                  )}
-
-                  {isForwarded && (
-                    <div className="message-forward-block">
-                      <div className="forward-header">
-                        <span className="forward-label">Переслано от:</span>
-                        <span className="forward-sender">{forwardSender}</span>
-                      </div>
-                      <div className="forward-content">
-                        {forwardText || msg.text}
-                      </div>
-                    </div>
-                  )}
-
-                  {msg.text && !isForwarded && <div className="message-text-content">{msg.text}</div>}
-
-                  {msg.files && msg.files.length > 0 && (
-                    <div className="message-files">
-                      {msg.files.map((file, idx) => {
-                        if (file._type === 'forward_metadata') return null;
-                        
-                        const fileUrl = getFileUrl(file);
-
-                        const isImage =
-                          file.isImage === true ||
-                          (file.type && file.type.startsWith('image/')) ||
-                          (file.name && /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i.test(file.name)) ||
-                          (file.originalName && /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i.test(file.originalName));
-
-                        const isVideo =
-                          file.isVideo === true ||
-                          (file.type && file.type.startsWith('video/')) ||
-                          (file.name && /\.(mp4|avi|mov|wmv|flv|mkv|webm)$/i.test(file.name));
-
-                        const isAudio =
-                          file.isAudio === true ||
-                          (file.type && file.type.startsWith('audio/')) ||
-                          (file.name && /\.(mp3|wav|flac|aac|ogg|wma)$/i.test(file.name));
-
-                        if (isImage) {
-                          const imgSrc = file.preview || fileUrl;
-                          return (
-                            <div
-                              key={idx}
-                              className="message-file-image"
-                              onClick={() => openImageViewer(msg.files, idx)}
-                            >
-                              <img
-                                src={imgSrc}
-                                alt=""
-                                className="message-image-thumb"
-                                loading="lazy"
-                                crossOrigin="anonymous"
-                                onError={(e) => {
-                                  console.error('Ошибка загрузки фото:', imgSrc);
-                                  e.target.src = imgSrc.replace(/%20/g, ' ');
-                                }}
-                              />
-                            </div>
-                          );
-                        }
-
-                        if (isVideo) {
-                          return (
-                            <div key={idx} className="message-file-video">
-                              <video src={fileUrl} controls preload="metadata" className="message-video-player">
-                                Ваш браузер не поддерживает видео
-                              </video>
-                            </div>
-                          );
-                        }
-
-                        if (isAudio) {
-                          return (
-                            <div key={idx} className="message-file-audio">
-                              <audio src={fileUrl} controls className="message-audio-player">
-                                Ваш браузер не поддерживает аудио
-                              </audio>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div key={idx} className="message-file">
-                            <i className="fas fa-file"></i>
-                            <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="file-link">
-                              {file.name || file.originalName || 'Файл'}
-                            </a>
-                            {file.size && <span className="file-size">({formatFileSize(file.size)})</span>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {!msg.text && (!msg.files || msg.files.length === 0) && (
-                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>пустое сообщение</span>
-                  )}
-                </div>
-
-                <div className="chat-message-time">{formatTime(msg.timestamp)}</div>
-              </div>
-            </div>
-          </div>
-        </React.Fragment>
-      );
-    });
-  }, [messages, selectedChat, user, openShareModal, handleMessageMenuToggle, getFileUrl, openImageViewer, highlightedMessageId]);
 
   const getUserById = useCallback((id) => {
     return users.find(u => u.id === id) || { name: 'Неизвестный', username: 'unknown' };
@@ -1506,6 +1576,64 @@ function Forum() {
       document.removeEventListener('scroll', handleScroll, true);
     };
   }, [messageContextMenu, closeMessageContextMenu]);
+
+  // ===== ЗАКРЫТИЕ МЕНЮ «+» ПО КЛИКУ ВНЕ =====
+  useEffect(() => {
+    if (!actionMenuPos) return;
+
+    const handleClickOutside = (e) => {
+      const menu = actionMenuRef.current;
+      const btn = addButtonRef.current;
+      if (menu && !menu.contains(e.target) && btn && !btn.contains(e.target)) {
+        setActionMenuPos(null);
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [actionMenuPos]);
+
+  // ===== ЗАКРЫТИЕ КОНТЕКСТНОГО МЕНЮ ЧАТА ПО КЛИКУ ВНЕ =====
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const handleClickOutside = (e) => {
+      const menu = chatContextMenuRef.current;
+      if (menu && !menu.contains(e.target)) {
+        setContextMenu(null);
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [contextMenu]);
+
+  // ===== ЗАКРЫТИЕ POPOVER / КОНТЕКСТНОГО МЕНЮ ПО ESCAPE =====
+  useEffect(() => {
+    if (!actionMenuPos && !contextMenu) return;
+
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        setActionMenuPos(null);
+        setContextMenu(null);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [actionMenuPos, contextMenu]);
 
   // ===== JSX =====
   return (
@@ -1563,7 +1691,7 @@ function Forum() {
                           if (!isInChats) {
                             const updated = [...selectedUsers, item];
                             setSelectedUsers(updated);
-                            localStorage.setItem('userChats', JSON.stringify(updated));
+                            saveCachedUserChats(user.id, updated);
                             setSelectedChat(item.id);
                             setSearchQuery('');
                             setShowSearchResults(false);
@@ -1671,35 +1799,37 @@ function Forum() {
         )}
 
         <div className="footer">
-          {user ? (
-            <>
-              <img src="/user_logo_one.png" alt="user" className="user_logo" />
-              <div className="user-info">
-                <Link to="/profile" className="username-link"><h3 className="username">{user.name}</h3></Link>
-              </div>
-            </>
-          ) : <Link to="/login"><h3 className="username">Войти</h3></Link>}
+          <UserFooter />
         </div>
       </div>
 
-      {/* POPOVER МЕНЮ */}
-      {actionMenuPos && (
-        <div className="action-popover-menu" style={{ position: 'fixed', top: `${actionMenuPos.top}px`, left: `${actionMenuPos.left}px`, zIndex: 10000, background: '#ffffff', borderRadius: '12px', boxShadow: '0 8px 30px rgba(0, 0, 0, 0.15)', padding: '6px 0', minWidth: '200px', animation: 'contextFadeIn 0.15s ease' }} onClick={(e) => e.stopPropagation()}>
-          <div className="context-menu-item" onClick={() => { setShowCreateGroupModal(true); setActionMenuPos(null); }} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1a1a2e', transition: '0.2s', fontWeight: 500 }}>
-            <i className="fas fa-users" style={{ fontSize: '0.9rem', color: '#3b82f6', width: '18px', textAlign: 'center' }}></i><span>Создать группу</span>
+      {/* POPOVER МЕНЮ «+» — portal в body, чтобы клик вне закрывал меню */}
+      {actionMenuPos && createPortal(
+        <>
+          <div className="popover-backdrop" onMouseDown={() => setActionMenuPos(null)} aria-hidden="true" />
+          <div
+            ref={actionMenuRef}
+            className="action-popover-menu"
+            style={{ position: 'fixed', top: `${actionMenuPos.top}px`, left: `${actionMenuPos.left}px`, zIndex: 100001, background: '#ffffff', borderRadius: '12px', boxShadow: '0 8px 30px rgba(0, 0, 0, 0.15)', padding: '6px 0', minWidth: '200px', animation: 'contextFadeIn 0.15s ease' }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="context-menu-item" onClick={() => { setShowCreateGroupModal(true); setActionMenuPos(null); }} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1a1a2e', transition: '0.2s', fontWeight: 500 }}>
+              <i className="fas fa-users" style={{ fontSize: '0.9rem', color: '#3b82f6', width: '18px', textAlign: 'center' }}></i><span>Создать группу</span>
+            </div>
+            <div className="context-menu-item" onClick={() => { setActionMenuPos(null); setTimeout(() => searchInputRef.current?.focus(), 100); }} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1a1a2e', transition: '0.2s', fontWeight: 500 }}>
+              <i className="fas fa-search" style={{ fontSize: '0.9rem', color: '#10b981', width: '18px', textAlign: 'center' }}></i><span>Найти друга</span>
+            </div>
+            <div className="context-menu-item" onClick={() => { setShowAddUserModal(true); setActionMenuPos(null); }} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1a1a2e', transition: '0.2s', fontWeight: 500 }}>
+              <i className="fas fa-user-plus" style={{ fontSize: '0.9rem', color: '#7c3aed', width: '18px', textAlign: 'center' }}></i><span>Добавить в чат</span>
+            </div>
           </div>
-          <div className="context-menu-item" onClick={() => { setActionMenuPos(null); setTimeout(() => searchInputRef.current?.focus(), 100); }} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1a1a2e', transition: '0.2s', fontWeight: 500 }}>
-            <i className="fas fa-search" style={{ fontSize: '0.9rem', color: '#10b981', width: '18px', textAlign: 'center' }}></i><span>Найти друга</span>
-          </div>
-          <div className="context-menu-item" onClick={() => { setShowAddUserModal(true); setActionMenuPos(null); }} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1a1a2e', transition: '0.2s', fontWeight: 500 }}>
-            <i className="fas fa-user-plus" style={{ fontSize: '0.9rem', color: '#7c3aed', width: '18px', textAlign: 'center' }}></i><span>Добавить в чат</span>
-          </div>
-        </div>
+        </>,
+        document.body
       )}
 
       {/* ИНФОРМАЦИЯ О ГРУППЕ */}
       {showGroupInfo && currentChat?.type === 'group' && (
-        <div className="modal-overlay" style={{ background: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'none' }} onClick={() => setShowGroupInfo(false)}>
+        <div className="modal-overlay" style={{ background: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'none' }} onMouseDown={closeOnBackdrop(() => setShowGroupInfo(false))}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '450px' }}>
             <div className="modal-header" style={{ justifyContent: 'center', position: 'relative' }}>
               <h3 style={{ margin: 0 }}>Информация о группе</h3>
@@ -1769,7 +1899,7 @@ function Forum() {
 
       {/* СОЗДАНИЕ ГРУППЫ */}
       {showCreateGroupModal && (
-        <div className="modal-overlay" style={{ background: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'none' }} onClick={() => setShowCreateGroupModal(false)}>
+        <div className="modal-overlay" style={{ background: 'rgba(0, 0, 0, 0.1)', backdropFilter: 'none' }} onMouseDown={closeOnBackdrop(() => setShowCreateGroupModal(false))}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
             <div className="modal-header">
               <h3><i className="fas fa-users"></i> Создать группу</h3>
@@ -1809,8 +1939,10 @@ function Forum() {
       )}
 
       {/* КОНТЕКСТНОЕ МЕНЮ ДЛЯ ЧАТА */}
-      {contextMenu && (
-        <div className="context-menu" style={{ position: 'fixed', top: `${contextMenu.y}px`, left: `${contextMenu.x}px`, zIndex: 10000, background: '#ffffff', borderRadius: '12px', boxShadow: '0 8px 30px rgba(0, 0, 0, 0.15)', padding: '6px 0', minWidth: '200px', animation: 'contextFadeIn 0.15s ease' }} onClick={(e) => e.stopPropagation()}>
+      {contextMenu && createPortal(
+        <>
+        <div className="popover-backdrop" onMouseDown={() => setContextMenu(null)} aria-hidden="true" />
+        <div ref={chatContextMenuRef} className="context-menu" style={{ position: 'fixed', top: `${contextMenu.y}px`, left: `${contextMenu.x}px`, zIndex: 100001, background: '#ffffff', borderRadius: '12px', boxShadow: '0 8px 30px rgba(0, 0, 0, 0.15)', padding: '6px 0', minWidth: '200px', animation: 'contextFadeIn 0.15s ease' }} onMouseDown={(e) => e.stopPropagation()}>
           <div className="context-menu-item" onClick={handleTogglePin} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1a1a2e', transition: '0.2s', fontWeight: 500 }}>
             <i className={`fas ${contextMenu.isPinned ? 'fa-times' : 'fa-thumbtack'}`} style={{ fontSize: '0.9rem', color: '#7c3aed', width: '18px', textAlign: 'center' }}></i>
             <span>{contextMenu.isPinned ? 'Открепить' : 'Закрепить'}</span>
@@ -1855,11 +1987,13 @@ function Forum() {
             </div>
           )}
         </div>
+        </>,
+        document.body
       )}
 
       {/* ПЕРЕИМЕНОВАНИЕ */}
       {showRenameModal && (
-        <div className="modal-overlay" onClick={() => setShowRenameModal(null)}>
+        <div className="modal-overlay" onMouseDown={closeOnBackdrop(() => setShowRenameModal(null))}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3><i className="fas fa-pen"></i> Переименовать чат</h3>
@@ -1882,7 +2016,7 @@ function Forum() {
 
       {/* ДОБАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯ */}
       {showAddUserModal && (
-        <div className="modal-overlay" onClick={() => setShowAddUserModal(false)}>
+        <div className="modal-overlay" onMouseDown={closeOnBackdrop(() => setShowAddUserModal(false))}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3><i className="fas fa-user-plus"></i> Добавить пользователя</h3>
@@ -1894,7 +2028,15 @@ function Forum() {
                 <input type="text" placeholder="Поиск пользователей..." value={searchUser} onChange={(e) => setSearchUser(e.target.value)} />
               </div>
               <div className="modal-user-list">
-                {users.filter(u => u.id !== user?.id && !selectedUsers.some(su => su.id === u.id) && (u.name.toLowerCase().includes(searchUser.toLowerCase()) || u.username.toLowerCase().includes(searchUser.toLowerCase()))).map(u => (
+                {addUserSearchLoading && (
+                  <div className="search-loading"><i className="fas fa-spinner fa-spin"></i> Поиск...</div>
+                )}
+                {!addUserSearchLoading && searchUser.trim().length < 2 && (
+                  <div className="modal-empty"><p>Введите минимум 2 символа для поиска</p></div>
+                )}
+                {!addUserSearchLoading && searchUser.trim().length >= 2 && addUserSearchResults
+                  .filter(u => u.id !== user?.id && !selectedUsers.some(su => su.id === u.id))
+                  .map(u => (
                   <div key={u.id} className="modal-user-item">
                     <div className="modal-user-info">
                       <div className="modal-user-avatar"><i className="fas fa-user-circle"></i></div>
@@ -1906,7 +2048,7 @@ function Forum() {
                     <button className="btn-add-user" onClick={() => handleAddUser(u)}><i className="fas fa-plus"></i> Добавить</button>
                   </div>
                 ))}
-                {users.filter(u => u.id !== user?.id && !selectedUsers.some(su => su.id === u.id) && (u.name.toLowerCase().includes(searchUser.toLowerCase()) || u.username.toLowerCase().includes(searchUser.toLowerCase()))).length === 0 && (
+                {!addUserSearchLoading && searchUser.trim().length >= 2 && addUserSearchResults.filter(u => u.id !== user?.id && !selectedUsers.some(su => su.id === u.id)).length === 0 && (
                   <div className="modal-empty"><p>{MESSAGES.NO_CONTACTS}</p></div>
                 )}
               </div>
@@ -1917,7 +2059,7 @@ function Forum() {
 
       {/* УВЕДОМЛЕНИЯ */}
       {showNotifications && (
-        <div className="modal-overlay" onClick={() => setShowNotifications(false)}>
+        <div className="modal-overlay" onMouseDown={closeOnBackdrop(() => setShowNotifications(false))}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3><i className="fas fa-bell"></i> Уведомления</h3>
@@ -1938,6 +2080,7 @@ function Forum() {
                         </div>
                       </div>
                       <button className="btn-approve-subscription" onClick={() => handleApproveSubscription(sub.id, sub.follower_id)}><i className="fas fa-check"></i> Одобрить</button>
+                      <button className="btn-reject-subscription" onClick={() => handleRejectSubscription(sub.id, sub.follower_id)} style={{ marginLeft: '8px', padding: '8px 12px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}><i className="fas fa-times"></i> Отклонить</button>
                     </div>
                   ))}
                 </div>
@@ -1949,6 +2092,14 @@ function Forum() {
 
       {/* ОСНОВНАЯ ОБЛАСТЬ ЧАТА */}
       <div className="chat-main">
+        {!selectedChat ? (
+          <div className="chat-empty">
+            <i className="fas fa-comments"></i>
+            <p>Выберите чат</p>
+            <span>Выберите чат из списка слева или найдите пользователя через поиск</span>
+          </div>
+        ) : (
+        <>
         <div className="chat-header">
           <button className="chat-menu-toggle" onClick={() => setIsMobileMenuOpen(true)}><i className="fas fa-bars"></i></button>
           <div className="chat-header-info">
@@ -1988,10 +2139,40 @@ function Forum() {
           </div>
         </div>
 
-        <div className="chat-messages" ref={messageListRef}>
-          {renderMessages()}
-          <div ref={null} />
+        <div className="chat-messages-shell">
+          <ChatMessengerWallpaper />
+          <ChatVirtualList
+            ref={chatListRef}
+            scrollRef={messageListRef}
+            messages={messages}
+            selectedChat={selectedChat}
+            user={user}
+            highlightedMessageId={highlightedMessageId}
+            setHighlightedMessageId={setHighlightedMessageId}
+            openShareModal={openShareModal}
+            handleMessageMenuToggle={handleMessageMenuToggle}
+            openImageViewer={openImageViewer}
+            onScroll={handleMessageListScroll}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleDrop}
+            forceScrollRef={forceScrollRef}
+            isLoadingOlderRef={isLoadingOlderRef}
+            typingIndicator={
+              activeTypingUsers.length > 0 ? (
+                <div className="typing-indicator" style={{ padding: '8px 16px', color: '#64748b', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                  {activeTypingUsers.join(', ')} {activeTypingUsers.length === 1 ? 'печатает' : 'печатают'}...
+                </div>
+              ) : null
+            }
+          />
         </div>
+
+        {privateChatBlockedReason && (
+          <div className="private-chat-banner" style={{ padding: '10px 16px', background: '#fef3c7', color: '#92400e', fontSize: '0.9rem', borderTop: '1px solid #fde68a' }}>
+            <i className="fas fa-lock" style={{ marginRight: '8px' }}></i>
+            {privateChatBlockedReason}
+          </div>
+        )}
 
         {/* БЛОК ОТВЕТА НА СООБЩЕНИЕ */}
         {replyToMessage && (
@@ -2022,44 +2203,11 @@ function Forum() {
           </div>
         )}
 
-        {/* ПРЕВЬЮ ФАЙЛОВ */}
-        {selectedFiles.length > 0 && (
-          <div className="file-preview-container">
-            {selectedFiles.map((file, index) => {
-              const isImage = file.type && file.type.startsWith('image/');
-              return (
-                <div key={index} className="file-preview-item">
-                  {isImage && filePreviews[index] ? (
-                    <div className="file-preview-image-wrapper">
-                      <img src={filePreviews[index]} alt={file.name} className="file-preview-image" />
-                    </div>
-                  ) : (
-                    <div className="file-preview-icon" style={{ color: getFileColor(file) }}>
-                      <i className={`fas ${getFileIcon(file)}`}></i>
-                      <span className="file-preview-name">{file.name}</span>
-                    </div>
-                  )}
-                  {!isUploading && uploadProgress[index] !== -1 && (
-                    <button type="button" className="file-remove-btn" onClick={() => removeFile(index)}>
-                      <i className="fas fa-times"></i>
-                    </button>
-                  )}
-                  {uploadProgress[index] !== undefined && uploadProgress[index] < 100 && uploadProgress[index] >= 0 && (
-                    <div className="file-upload-progress">
-                      <div className="file-progress-bar" style={{ width: `${uploadProgress[index]}%` }}></div>
-                    </div>
-                  )}
-                  {uploadProgress[index] === -1 && (
-                    <div className="file-upload-error">
-                      <i className="fas fa-times-circle"></i>
-                      <span>Ошибка</span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <AttachmentStaging
+          items={stagedItems}
+          onRemove={removeStaged}
+          onRetry={retryStaged}
+        />
 
         {/* ПОЛЕ ВВОДА */}
         <div className="chat-input-area">
@@ -2069,7 +2217,13 @@ function Forum() {
                 <button type="button" className="chat-attach-btn" onClick={() => fileInputRef.current.click()} title="Прикрепить файлы" disabled={isUploading}>
                   <i className="fas fa-paperclip"></i>
                 </button>
-                <input type="file" ref={fileInputRef} multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.7z,.txt,.mp3,.wav,.flac,.mp4,.avi,.mov,.png,.jpg,.jpeg,.gif,.svg" style={{ display: 'none' }} onChange={handleFileSelect} disabled={isUploading} />
+                <input type="file" ref={fileInputRef} multiple accept={UPLOAD_ACCEPT} style={{ display: 'none' }} onChange={handleFileSelect} disabled={isUploading} />
+                <ChatEmojiPicker
+                  open={emojiPickerOpen}
+                  onToggle={setEmojiPickerOpen}
+                  onSelect={insertEmoji}
+                  disabled={!(isConnected || websocketService.isConnected) || isUploading || !canSendPrivateMessage}
+                />
                 <input
                   ref={inputRef}
                   type="text"
@@ -2081,10 +2235,11 @@ function Forum() {
                   }
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
+                  onPaste={handlePaste}
                   onKeyDown={() => sendTyping()}
-                  disabled={!isConnected || isUploading}
+                  disabled={!(isConnected || websocketService.isConnected) || isUploading || !canSendPrivateMessage}
                 />
-                <button type="submit" className="chat-send-btn" disabled={(!newMessage.trim() && selectedFiles.length === 0) || !isConnected || isUploading}>
+                <button type="submit" className="chat-send-btn" disabled={(!newMessage.trim() && selectedFiles.length === 0) || !(isConnected || websocketService.isConnected) || isUploading || !canSendPrivateMessage}>
                   {editingMessage ? <i className="fas fa-check"></i> : (isUploading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>)}
                 </button>
               </div>
@@ -2095,12 +2250,20 @@ function Forum() {
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* УВЕДОМЛЕНИЯ TOAST */}
       <div className="notification-container">
         {notifications.map(notif => (
-          <NotificationToast key={notif.id} message={notif.message} type={notif.type} duration={notif.duration} onClose={() => setNotifications(prev => prev.filter(n => n.id !== notif.id))} />
+          <NotificationToast
+            key={notif.id}
+            message={notif.message}
+            type={notif.type}
+            duration={notif.duration}
+            onClose={() => removeNotification(notif.id)}
+          />
         ))}
       </div>
 
@@ -2140,7 +2303,7 @@ function Forum() {
 
       {/* МОДАЛЬНОЕ ОКНО ПОДЕЛИТЬСЯ */}
       {shareModalOpen && (
-        <div className="modal-overlay" onClick={() => setShareModalOpen(false)}>
+        <div className="modal-overlay" onMouseDown={closeOnBackdrop(() => setShareModalOpen(false))}>
           <div className="modal-content share-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
             <div className="modal-header">
               <h3><i className="fas fa-share-alt"></i> Поделиться</h3>

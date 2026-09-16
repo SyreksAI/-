@@ -1,12 +1,15 @@
 # app/routes/study.py
 from fastapi import APIRouter, Depends, HTTPException, Header
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from app.database import get_db
 from app.models import Technology, StudyTopic, StudySubtopic, User
+from app.html_sanitize import sanitize_html
 from app.dependencies import get_current_user
 from pydantic import BaseModel
-from app.redis_client import cache, invalidate_cache  # 👈 ИМПОРТ
+from app.redis_client import cache, invalidate_cache
 
 router = APIRouter()
 
@@ -32,14 +35,19 @@ class SubtopicCreate(BaseModel):
 
 # ===== ТЕХНОЛОГИИ =====
 @router.get("/technologies")
-@cache(ttl=300, key_prefix="study_technologies")  # ✅ КЭШИРУЕМ
-async def get_technologies(db: Session = Depends(get_db)):
-    technologies = db.query(Technology).filter(Technology.is_active == True).order_by(Technology.sort_order).all()
-    
-    result = []
-    for tech in technologies:
-        topics = db.query(StudyTopic).filter(StudyTopic.technology_id == tech.id).all()
-        tech_data = {
+@cache(ttl=300, key_prefix="study_technologies")
+async def get_technologies(db: AsyncSession = Depends(get_db)):
+    technologies = (
+        await db.execute(
+            select(Technology)
+            .options(selectinload(Technology.topics).selectinload(StudyTopic.subtopics))
+            .where(Technology.is_active == True)
+            .order_by(Technology.sort_order)
+        )
+    ).scalars().all()
+
+    return [
+        {
             "id": tech.id,
             "name": tech.name,
             "icon": tech.icon,
@@ -58,33 +66,36 @@ async def get_technologies(db: Session = Depends(get_db)):
                         {
                             "id": subtopic.id,
                             "title": subtopic.title,
-                            "description": subtopic.description
+                            "description": subtopic.description,
                         }
                         for subtopic in topic.subtopics
-                    ]
+                    ],
                 }
-                for topic in topics
-            ]
+                for topic in tech.topics
+            ],
         }
-        result.append(tech_data)
-    
-    return result
+        for tech in technologies
+    ]
 
 @router.post("/technologies")
 async def create_technology(
     tech: TechnologyCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    new_tech = Technology(**tech.dict())
+    new_tech = Technology(
+        name=tech.name,
+        icon=tech.icon,
+        description=sanitize_html(tech.description) if tech.description else None,
+        sort_order=tech.sort_order,
+    )
     db.add(new_tech)
-    db.commit()
-    db.refresh(new_tech)
+    await db.commit()
+    await db.refresh(new_tech)
     
-    # ✅ Очищаем кэш
     await invalidate_cache("study_technologies*")
     
     return new_tech
@@ -94,24 +105,25 @@ async def update_technology(
     tech_id: int,
     tech_data: TechnologyCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    db_tech = db.query(Technology).filter(Technology.id == tech_id).first()
+    db_tech = (
+        await db.execute(select(Technology).where(Technology.id == tech_id))
+    ).scalar_one_or_none()
     if not db_tech:
         raise HTTPException(status_code=404, detail="Технология не найдена")
     
     db_tech.name = tech_data.name
     db_tech.icon = tech_data.icon
-    db_tech.description = tech_data.description
+    db_tech.description = sanitize_html(tech_data.description) if tech_data.description else None
     db_tech.sort_order = tech_data.sort_order
     
-    db.commit()
-    db.refresh(db_tech)
+    await db.commit()
+    await db.refresh(db_tech)
     
-    # ✅ Очищаем кэш
     await invalidate_cache("study_technologies*")
     
     return db_tech
@@ -120,19 +132,20 @@ async def update_technology(
 async def delete_technology(
     tech_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    db_tech = db.query(Technology).filter(Technology.id == tech_id).first()
+    db_tech = (
+        await db.execute(select(Technology).where(Technology.id == tech_id))
+    ).scalar_one_or_none()
     if not db_tech:
         raise HTTPException(status_code=404, detail="Технология не найдена")
     
-    db.delete(db_tech)
-    db.commit()
+    await db.delete(db_tech)
+    await db.commit()
     
-    # ✅ Очищаем кэш
     await invalidate_cache("study_technologies*")
     
     return {"message": "Технология удалена"}
@@ -140,24 +153,34 @@ async def delete_technology(
 
 # ===== ТЕМЫ =====
 @router.get("/technologies/{tech_id}/topics")
-async def get_topics(tech_id: int, db: Session = Depends(get_db)):
-    return db.query(StudyTopic).filter(StudyTopic.technology_id == tech_id).order_by(StudyTopic.sort_order).all()
+async def get_topics(tech_id: int, db: AsyncSession = Depends(get_db)):
+    return (
+        await db.execute(
+            select(StudyTopic)
+            .where(StudyTopic.technology_id == tech_id)
+            .order_by(StudyTopic.sort_order)
+        )
+    ).scalars().all()
 
 @router.post("/topics")
 async def create_topic(
     topic: TopicCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    new_topic = StudyTopic(**topic.dict())
+    new_topic = StudyTopic(
+        title=topic.title,
+        description=sanitize_html(topic.description) if topic.description else None,
+        technology_id=topic.technology_id,
+        sort_order=topic.sort_order,
+    )
     db.add(new_topic)
-    db.commit()
-    db.refresh(new_topic)
+    await db.commit()
+    await db.refresh(new_topic)
     
-    # ✅ Очищаем кэш технологий
     await invalidate_cache("study_technologies*")
     
     return new_topic
@@ -167,24 +190,25 @@ async def update_topic(
     topic_id: int,
     topic_data: TopicCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    db_topic = db.query(StudyTopic).filter(StudyTopic.id == topic_id).first()
+    db_topic = (
+        await db.execute(select(StudyTopic).where(StudyTopic.id == topic_id))
+    ).scalar_one_or_none()
     if not db_topic:
         raise HTTPException(status_code=404, detail="Тема не найдена")
     
     db_topic.title = topic_data.title
-    db_topic.description = topic_data.description
+    db_topic.description = sanitize_html(topic_data.description) if topic_data.description else None
     db_topic.technology_id = topic_data.technology_id
     db_topic.sort_order = topic_data.sort_order
     
-    db.commit()
-    db.refresh(db_topic)
+    await db.commit()
+    await db.refresh(db_topic)
     
-    # ✅ Очищаем кэш технологий
     await invalidate_cache("study_technologies*")
     
     return db_topic
@@ -193,19 +217,20 @@ async def update_topic(
 async def delete_topic(
     topic_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    db_topic = db.query(StudyTopic).filter(StudyTopic.id == topic_id).first()
+    db_topic = (
+        await db.execute(select(StudyTopic).where(StudyTopic.id == topic_id))
+    ).scalar_one_or_none()
     if not db_topic:
         raise HTTPException(status_code=404, detail="Тема не найдена")
     
-    db.delete(db_topic)
-    db.commit()
+    await db.delete(db_topic)
+    await db.commit()
     
-    # ✅ Очищаем кэш технологий
     await invalidate_cache("study_technologies*")
     
     return {"message": "Тема удалена"}
@@ -213,24 +238,34 @@ async def delete_topic(
 
 # ===== ПОДТЕМЫ =====
 @router.get("/topics/{topic_id}/subtopics")
-async def get_subtopics(topic_id: int, db: Session = Depends(get_db)):
-    return db.query(StudySubtopic).filter(StudySubtopic.topic_id == topic_id).order_by(StudySubtopic.sort_order).all()
+async def get_subtopics(topic_id: int, db: AsyncSession = Depends(get_db)):
+    return (
+        await db.execute(
+            select(StudySubtopic)
+            .where(StudySubtopic.topic_id == topic_id)
+            .order_by(StudySubtopic.sort_order)
+        )
+    ).scalars().all()
 
 @router.post("/subtopics")
 async def create_subtopic(
     subtopic: SubtopicCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    new_subtopic = StudySubtopic(**subtopic.dict())
+    new_subtopic = StudySubtopic(
+        title=subtopic.title,
+        description=sanitize_html(subtopic.description) if subtopic.description else None,
+        topic_id=subtopic.topic_id,
+        sort_order=subtopic.sort_order,
+    )
     db.add(new_subtopic)
-    db.commit()
-    db.refresh(new_subtopic)
+    await db.commit()
+    await db.refresh(new_subtopic)
     
-    # ✅ Очищаем кэш технологий
     await invalidate_cache("study_technologies*")
     
     return new_subtopic
@@ -240,28 +275,29 @@ async def update_subtopic(
     subtopic_id: int,
     subtopic_data: SubtopicCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    db_subtopic = db.query(StudySubtopic).filter(StudySubtopic.id == subtopic_id).first()
+    db_subtopic = (
+        await db.execute(select(StudySubtopic).where(StudySubtopic.id == subtopic_id))
+    ).scalar_one_or_none()
     if not db_subtopic:
         raise HTTPException(status_code=404, detail="Подтема не найдена")
     
     if subtopic_data.title is not None:
         db_subtopic.title = subtopic_data.title
     if subtopic_data.description is not None:
-        db_subtopic.description = subtopic_data.description
+        db_subtopic.description = sanitize_html(subtopic_data.description) if subtopic_data.description else None
     if subtopic_data.topic_id is not None:
         db_subtopic.topic_id = subtopic_data.topic_id
     if subtopic_data.sort_order is not None:
         db_subtopic.sort_order = subtopic_data.sort_order
     
-    db.commit()
-    db.refresh(db_subtopic)
+    await db.commit()
+    await db.refresh(db_subtopic)
     
-    # ✅ Очищаем кэш технологий
     await invalidate_cache("study_technologies*")
     
     return db_subtopic
@@ -270,19 +306,20 @@ async def update_subtopic(
 async def delete_subtopic(
     subtopic_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    db_subtopic = db.query(StudySubtopic).filter(StudySubtopic.id == subtopic_id).first()
+    db_subtopic = (
+        await db.execute(select(StudySubtopic).where(StudySubtopic.id == subtopic_id))
+    ).scalar_one_or_none()
     if not db_subtopic:
         raise HTTPException(status_code=404, detail="Подтема не найдена")
     
-    db.delete(db_subtopic)
-    db.commit()
+    await db.delete(db_subtopic)
+    await db.commit()
     
-    # ✅ Очищаем кэш технологий
     await invalidate_cache("study_technologies*")
     
     return {"message": "Подтема удалена"}

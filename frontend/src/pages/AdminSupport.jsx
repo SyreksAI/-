@@ -1,46 +1,56 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { get, put, del } from '../utils/api';
+import { isAdminUser, clearAuthStorage } from '../utils/auth';
+import { useAuth } from '../context/AuthProvider';
+import AdminPageLoading from '../components/AdminPageLoading';
 
 function AdminSupport() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [requests, setRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('all');
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [showModal, setShowModal] = useState(false);
 
   // ===== ПРОВЕРКА СЕССИИ АДМИНА =====
   useEffect(() => {
-    const adminSession = JSON.parse(localStorage.getItem('adminSession'));
-    if (!adminSession || !adminSession.loggedIn) {
+    if (!isAdminUser(user)) {
       navigate('/admin/login');
     }
-  }, [navigate]);
+  }, [navigate, user]);
 
   // ===== ЗАГРУЗКА ОБРАЩЕНИЙ =====
+  const firstLoadRef = React.useRef(true);
   useEffect(() => {
-    loadRequests();
+    loadRequests({ silent: !firstLoadRef.current });
+    firstLoadRef.current = false;
   }, [filter]);
 
-  const loadRequests = async () => {
-    setLoading(true);
+  const loadRequests = async ({ silent = false } = {}) => {
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setInitialLoading(true);
+    }
     try {
       const currentUser = JSON.parse(localStorage.getItem('currentUser'));
       if (!currentUser) {
-        setLoading(false);
+        setInitialLoading(false);
+        setRefreshing(false);
         return;
       }
       const url = filter === 'all' ? '/api/support/' : `/api/support/?status=${filter}`;
-      const data = await get(url, {
-        'X-User-ID': String(currentUser.id)
-      });
+      const data = await get(url);
       setRequests(data || []);
     } catch (error) {
       console.error('Ошибка загрузки обращений:', error);
       setRequests([]);
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -48,10 +58,8 @@ function AdminSupport() {
   const updateStatus = async (id, status) => {
     try {
       const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-      await put(`/api/support/${id}`, { status }, {
-        'X-User-ID': String(currentUser.id)
-      });
-      loadRequests();
+      await put(`/api/support/${id}`, { status });
+      loadRequests({ silent: true });
       alert('✅ Статус обновлён!');
     } catch (error) {
       console.error('Ошибка обновления статуса:', error);
@@ -64,10 +72,8 @@ function AdminSupport() {
     if (!window.confirm('Удалить обращение?')) return;
     try {
       const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-      await del(`/api/support/${id}`, {
-        'X-User-ID': String(currentUser.id)
-      });
-      loadRequests();
+      await del(`/api/support/${id}`);
+      loadRequests({ silent: true });
       alert('✅ Обращение удалено!');
     } catch (error) {
       console.error('Ошибка удаления:', error);
@@ -95,38 +101,13 @@ function AdminSupport() {
   // ===== ВЫХОД =====
   const handleAdminLogout = () => {
     if (window.confirm('Вы уверены, что хотите выйти из админ-панели?')) {
-      localStorage.removeItem('adminSession');
+      clearAuthStorage();
       navigate('/admin/login');
     }
   };
 
-  if (loading) {
-    return (
-      <div className="admin-container">
-        <div className="admin-sidebar">
-          <div className="header"><img className="logo" src="/logo.png" alt="logo" /></div>
-          <div className="admin-menu">
-            <div className="admin-menu-title">Навигация</div>
-            <Link to="/" className="admin-menu-item"><i className="fas fa-home"></i> На главную</Link>
-            <Link to="/admin" className="admin-menu-item"><i className="fas fa-book"></i> Управление темами</Link>
-            <Link to="/admin/users" className="admin-menu-item"><i className="fas fa-users"></i> Пользователи</Link>
-            <Link to="/admin/support" className="admin-menu-item active"><i className="fas fa-headset"></i> Поддержка</Link>
-            <Link to="/admin/settings" className="admin-menu-item"><i className="fas fa-sliders-h"></i> Настройки</Link>
-            <div className="admin-menu-divider"></div>
-            <button className="admin-menu-item logout" onClick={handleAdminLogout}>
-              <i className="fas fa-sign-out-alt"></i> Выйти из админки
-            </button>
-          </div>
-          <div className="footer"><img src="/user_logo_one.png" alt="user" className="user_logo" /><h3 className="username">Admin</h3></div>
-        </div>
-        <div className="admin-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
-          <div style={{ textAlign: 'center' }}>
-            <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', color: '#7c3aed' }}></i>
-            <p style={{ color: '#94a3b8', marginTop: '12px' }}>Загрузка обращений...</p>
-          </div>
-        </div>
-      </div>
-    );
+  if (initialLoading) {
+    return <AdminPageLoading message="Загрузка обращений..." />;
   }
 
   return (

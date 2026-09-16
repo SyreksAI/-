@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { get } from '../utils/api';
 import websocketService from '../services/websocket';
+import { mergeChatMessages, normalizeChatMessage, upsertLiveMessage } from '../utils/chatMessage';
 
 export function useChat(user, selectedChat, setMessages) {
   const [isConnected, setIsConnected] = useState(false);
@@ -13,37 +14,36 @@ export function useChat(user, selectedChat, setMessages) {
   /**
    * Загрузка истории чата
    */
-  const loadChatHistory = useCallback(async (chatId) => {
-    if (!user?.id || chatId === 'general') return;
-    try {
-      const data = await get(`/api/messages/history/${chatId}`, {
-        'X-User-ID': String(user.id)
-      });
-      
-      if (data.length > 0) {
-        const normalized = data.map(msg => ({
-          id: msg.id,
-          chatId: msg.chat_id || msg.chatId,
-          userId: msg.user_id || msg.userId,
-          username: msg.username,
-          name: msg.user_name || msg.name,
-          text: msg.text,
-          isSystem: msg.is_system || msg.isSystem || false,
-          timestamp: msg.timestamp,
-          files: msg.files || [],
-          order: msg.order || 0  // ✅ ДОБАВЛЕНО!
-        }));
-        setMessages(prev => {
-          const existingIds = new Set(prev.map(m => m.id));
-          const newMessages = normalized.filter(msg => !existingIds.has(msg.id));
-          const all = [...prev, ...newMessages];
-          // ✅ Сортировка по order
-          all.sort((a, b) => (a.order || 0) - (b.order || 0));
-          return all;
-        });
+  const loadChatHistory = useCallback(async (chatId, { beforeId, limit = 100 } = {}) => {
+    if (!user?.id || !chatId) return 0;
+
+    if (websocketService.isConnected) {
+      try {
+        return await websocketService.requestHistory(chatId, { beforeId, limit });
+      } catch (error) {
+        if (error.message === 'Доступ запрещен') {
+          return 0;
+        }
+        console.warn('WS history fallback to REST:', error.message);
       }
+    }
+
+    try {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (beforeId) params.set('before_id', String(beforeId));
+      const data = await get(`/api/messages/history/${chatId}?${params}`);
+
+      if (data.length > 0) {
+        const normalized = data.map((msg) => normalizeChatMessage({
+          ...msg,
+          user_name: msg.user_name || msg.name,
+        }));
+        setMessages((prev) => mergeChatMessages(prev, normalized));
+      }
+      return data.length;
     } catch (error) {
       console.error('Error loading chat history:', error);
+      return 0;
     }
   }, [user, setMessages]);
 
@@ -122,34 +122,32 @@ export function useChat(user, selectedChat, setMessages) {
    * Обработка входящих сообщений
    */
   const handleNewMessage = useCallback((data, addNotification) => {
+    if (data.type === 'history_batch') {
+      const incoming = (data.messages || []).map((item) => normalizeChatMessage(item));
+      if (incoming.length > 0) {
+        setMessages((prev) => mergeChatMessages(prev, incoming));
+      }
+      return;
+    }
+
     // Новое сообщение или история
     if (data.type === 'new_message' || data.type === 'history') {
-      const rawMsg = data.message;
-      const msg = {
-        id: rawMsg.id,
-        chatId: rawMsg.chat_id || rawMsg.chatId || 'general',
-        userId: rawMsg.user_id || rawMsg.userId,
-        username: rawMsg.username,
-        name: rawMsg.name || rawMsg.user_name,
-        text: rawMsg.text,
-        isSystem: rawMsg.is_system || rawMsg.isSystem || false,
-        timestamp: rawMsg.timestamp,
-        files: rawMsg.files || [],
-        order: rawMsg.order || 0,  // ✅ ДОБАВЛЕНО!
-        reply_to: rawMsg.reply_to || null
-      };
-      
-      setMessages(prev => {
-        if (prev.some(m => m.id === msg.id)) return prev;
-        const updated = [...prev, msg];
-        // ✅ Сортировка по order
-        updated.sort((a, b) => (a.order || 0) - (b.order || 0));
-        return updated;
-      });
+      const msg = normalizeChatMessage(data.message);
 
-      if (data.type === 'new_message' && msg.chatId !== selectedChat && msg.userId !== user?.id) {
+      setMessages((prev) => (
+        data.type === 'new_message'
+          ? upsertLiveMessage(prev, msg)
+          : mergeChatMessages(prev, [msg])
+      ));
+
+      if (
+        data.type === 'new_message'
+        && !msg.isSystem
+        && msg.chatId !== selectedChat
+        && msg.userId !== user?.id
+      ) {
         setUnreadCounts(prev => ({ ...prev, [msg.chatId]: (prev[msg.chatId] || 0) + 1 }));
-        if (!msg.isSystem && addNotification) {
+        if (addNotification) {
           addNotification(`💬 ${msg.username}: ${msg.text.substring(0, 30)}...`, 'message', 5000);
         }
       }
@@ -165,9 +163,14 @@ export function useChat(user, selectedChat, setMessages) {
     
     // Сообщение отредактировано
     if (data.type === 'message_edited') {
-      setMessages(prev => prev.map(m => 
-        m.id === data.message_id 
-          ? { ...m, text: data.new_text, edited: true }
+      const edited = data.message || {};
+      const messageId = edited.id ?? data.message_id;
+      const newText = edited.text ?? data.new_text;
+      if (!messageId) return;
+
+      setMessages(prev => prev.map(m =>
+        m.id === messageId
+          ? { ...m, text: newText, edited: true }
           : m
       ));
       if (addNotification) {
@@ -199,18 +202,13 @@ export function useChat(user, selectedChat, setMessages) {
       }
     }
     
-    // Ошибки
-    if (data.type === 'error') {
+    // Ошибки (кроме ожидаемого отказа доступа к истории чата)
+    if (data.type === 'error' && data.message !== 'Доступ запрещен') {
       if (addNotification) {
         addNotification(`❌ ${data.message}`, 'error', 5000);
       }
     }
   }, [selectedChat, user, setMessages]);
-
-  // Авто-скролл при новых сообщениях
-  useEffect(() => {
-    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-  }, [setMessages]);
 
   // Очистка старых статусов "печатает..."
   useEffect(() => {
@@ -245,6 +243,7 @@ export function useChat(user, selectedChat, setMessages) {
     unreadCounts,
     setUnreadCounts,
     typingUsers,
+    setTypingUsers,
     loadChatHistory,
     sendMessage,
     editMessage,

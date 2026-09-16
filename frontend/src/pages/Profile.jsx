@@ -1,12 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, Link, useParams } from 'react-router-dom';
-import { get, put } from '../utils/api';  // ✅ Уже импортировано
+import { authAPI, get, post, put } from '../utils/api';
+import { useAuth } from '../context/AuthProvider';
+import { getStoredAuthToken } from '../utils/authToken';
+import AppLoadingScreen from '../components/AppLoadingScreen';
+import PasswordInput from '../components/PasswordInput';
+import { getPasswordValidationError, PASSWORD_HINT } from '../utils/passwordValidation';
+import { loadCachedUserChats, saveCachedUserChats, saveSelectedChat } from '../utils/chatCache';
+import { formatRegisteredDate } from '../utils/formatDate';
 
 function Profile() {
   const navigate = useNavigate();
-  const { userId } = useParams(); 
-  
-  const [currentUser, setCurrentUser] = useState(null);
+  const { userId } = useParams();
+  const { user: currentUser, loading: authLoading, refreshUser, applyAuthResponse, logout } = useAuth();
+
+  const profileId = useMemo(() => {
+    if (userId) {
+      const parsed = Number.parseInt(userId, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return currentUser?.id ?? null;
+  }, [userId, currentUser?.id]);
+
   const [targetUser, setTargetUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [subStatus, setSubStatus] = useState('none');
@@ -15,37 +30,48 @@ function Profile() {
   const [editData, setEditData] = useState({ name: '', username: '', email: '', password: '', confirmPassword: '' });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   
   // ===== ЗАГРУЗКА ПРОФИЛЯ =====
   useEffect(() => {
-    const curr = JSON.parse(localStorage.getItem('currentUser'));
-    if (!curr) {
-      navigate('/login');
+    if (authLoading) return;
+
+    if (!currentUser?.id || !profileId) {
+      setIsLoading(false);
+      setTargetUser(null);
       return;
     }
-    setCurrentUser(curr);
+
+    const isOwnProfile = profileId === currentUser.id;
 
     const loadProfile = async () => {
       setIsLoading(true);
-      try {
-        if (userId && parseInt(userId) !== curr.id) {
-          // ✅ ИСПРАВЛЕНО: Используем get() вместо fetch
-          const data = await get(`/api/users/${userId}`);
-          setTargetUser(data);
+      setError('');
 
-          // ✅ ИСПРАВЛЕНО: Проверяем статус подписки через get()
-          const subData = await get(`/api/users/subscriptions/status/${userId}`, {
-            'X-User-ID': String(curr.id)
-          });
-          setSubStatus(subData.status || 'none');
-          
-        } else {
-          // Загружаем свой профиль
-          setTargetUser(curr);
+      if (isOwnProfile) {
+        setTargetUser(currentUser);
+      }
+
+      try {
+        if (isOwnProfile) {
+          const me = await authAPI.getCurrentUser({ suppressLogout: true });
+          setTargetUser(me);
           setSubStatus('approved');
+          return;
         }
+
+        const data = await get(`/api/users/${profileId}`);
+        setTargetUser(data);
+        const subData = await get(`/api/users/subscriptions/status/${profileId}`);
+        setSubStatus(subData.status || 'none');
       } catch (err) {
         console.error(err);
+        if (isOwnProfile) {
+          setTargetUser(currentUser);
+          setSubStatus('approved');
+          return;
+        }
+        setTargetUser(null);
         setError(err.message || 'Не удалось загрузить профиль');
       } finally {
         setIsLoading(false);
@@ -53,7 +79,7 @@ function Profile() {
     };
 
     loadProfile();
-  }, [userId, navigate]);
+  }, [authLoading, profileId, currentUser?.id, currentUser]);
 
   // ===== ОТПРАВКА ЗАПРОСА НА ПОДПИСКУ =====
   const handleSubscribe = async () => {
@@ -62,12 +88,7 @@ function Profile() {
     setSuccess('');
     
     try {
-      // ✅ ИСПРАВЛЕНО: Используем put() или post() из utils
-      const data = await put(
-        '/api/users/subscribe',
-        { following_id: targetUser.id },
-        { 'X-User-ID': String(currentUser.id) }
-      );
+      await post('/api/users/subscribe', { following_id: targetUser.id });
       
       setSubStatus('pending');
       setSuccess(`📨 Запрос отправлен пользователю ${targetUser.name}`);
@@ -84,94 +105,96 @@ function Profile() {
     
     const chatId = `private_${Math.min(currentUser.id, targetUser.id)}_${Math.max(currentUser.id, targetUser.id)}`;
     
-    const savedChats = JSON.parse(localStorage.getItem('userChats') || '[]');
+    const savedChats = loadCachedUserChats(currentUser.id);
     if (!savedChats.some(u => u.id === targetUser.id)) {
       savedChats.push(targetUser);
-      localStorage.setItem('userChats', JSON.stringify(savedChats));
+      saveCachedUserChats(currentUser.id, savedChats);
     }
-    
-    localStorage.setItem('selectedChat', chatId);
-    navigate('/forum');
+
+    saveSelectedChat(currentUser.id, chatId);
+    navigate('/forum', { state: { chatId } });
   };
 
   // ===== РЕДАКТИРОВАНИЕ ПРОФИЛЯ (ТОЛЬКО ДЛЯ СЕБЯ) =====
   const handleEditSubmit = async (e) => {
     e.preventDefault();
+    if (!currentUser?.id) return;
+
     setError('');
     setSuccess('');
 
-    // Валидация
-    if (editData.username && !/^[a-zA-Z0-9_]+$/.test(editData.username)) {
-      return setError('Только буквы, цифры и _');
+    const name = editData.name.trim();
+    const username = editData.username.trim();
+    const email = editData.email.trim().toLowerCase();
+
+    if (name.length < 2) {
+      return setError('Имя должно содержать минимум 2 символа');
     }
-    if (editData.username && editData.username.length < 3) {
-      return setError('Минимум 3 символа');
+    if (username.length < 3) {
+      return setError('Username должен содержать минимум 3 символа');
     }
-    if (editData.password && editData.password.length < 6) {
-      return setError('Пароль мин. 6 символов');
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+      return setError('Username может содержать только буквы, цифры и _');
     }
-    if (editData.password && editData.password !== editData.confirmPassword) {
-      return setError('Пароли не совпадают');
+    if (!email || !email.includes('@')) {
+      return setError('Введите корректный email');
+    }
+    if (editData.password) {
+      const passwordError = getPasswordValidationError(editData.password);
+      if (passwordError) {
+        return setError(passwordError);
+      }
+      if (editData.password !== editData.confirmPassword) {
+        return setError('Пароли не совпадают');
+      }
+    } else if (editData.confirmPassword) {
+      return setError('Введите новый пароль или очистите подтверждение');
     }
 
+    const payload = { name, username, email };
+    if (editData.password) {
+      payload.password = editData.password;
+    }
+
+    setIsSaving(true);
     try {
-      // ✅ ИСПРАВЛЕНО: Отправляем PUT запрос на сервер
-      const updatedUser = await put(
-        `/api/users/${currentUser.id}`,
-        {
-          name: editData.name || currentUser.name,
-          username: editData.username || currentUser.username,
-          email: editData.email || currentUser.email,
-          password: editData.password || undefined
-        },
-        { 'X-User-ID': String(currentUser.id) }
-      );
+      const updatedUser = await put(`/api/users/${currentUser.id}`, payload);
 
-      // Обновляем localStorage
-      localStorage.setItem('currentUser', JSON.stringify(updatedUser));
-      
-      // Обновляем список пользователей
-      const allUsers = JSON.parse(localStorage.getItem('users') || '[]');
-      const userIndex = allUsers.findIndex(u => u.id === currentUser.id);
-      if (userIndex !== -1) {
-        allUsers[userIndex] = updatedUser;
-        localStorage.setItem('users', JSON.stringify(allUsers));
+      const token = getStoredAuthToken();
+      if (token) {
+        applyAuthResponse({ access_token: token, user: updatedUser });
+      } else {
+        await refreshUser();
       }
 
-      setCurrentUser(updatedUser);
       setTargetUser(updatedUser);
-      setSuccess('✅ Профиль обновлен!');
+      setEditData({ name: '', username: '', email: '', password: '', confirmPassword: '' });
+      setSuccess('✅ Профиль обновлён');
       setIsEditing(false);
       setTimeout(() => setSuccess(''), 3000);
-      
     } catch (err) {
       setError(err.message || 'Ошибка при обновлении профиля');
+    } finally {
+      setIsSaving(false);
     }
   };
 
   // ===== ИНИЦИАЛИЗАЦИЯ ФОРМЫ РЕДАКТИРОВАНИЯ =====
   useEffect(() => {
-    if (isEditing && currentUser) {
+    if (isEditing && targetUser) {
       setEditData({
-        name: currentUser.name || '',
-        username: currentUser.username || '',
-        email: currentUser.email || '',
+        name: targetUser.name || '',
+        username: targetUser.username || '',
+        email: targetUser.email || '',
         password: '',
         confirmPassword: ''
       });
     }
-  }, [isEditing, currentUser]);
+  }, [isEditing, targetUser]);
 
   // ===== ОТОБРАЖЕНИЕ ЗАГРУЗКИ =====
-  if (isLoading) {
-    return (
-      <div className="profile-page" style={{display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh'}}>
-        <div style={{textAlign: 'center'}}>
-          <i className="fas fa-circle-notch fa-spin" style={{fontSize: '3rem', color: '#7c3aed'}}></i>
-          <p style={{marginTop: '16px', color: '#64748b'}}>Загрузка профиля...</p>
-        </div>
-      </div>
-    );
+  if (authLoading || isLoading) {
+    return <AppLoadingScreen fullscreen={false} alt="Загрузка профиля" />;
   }
 
   if (!targetUser) {
@@ -181,7 +204,9 @@ function Profile() {
           <button className="btn-back-profile" onClick={() => navigate(-1)}>
             <i className="fas fa-arrow-left"></i> Назад
           </button>
-          <div className="profile-header"><h1>Пользователь не найден</h1></div>
+          <div className="profile-header">
+            <h1>{error || 'Пользователь не найден'}</h1>
+          </div>
         </div>
       </div>
     );
@@ -273,7 +298,7 @@ function Profile() {
           </div>
           <div className="detail-row">
             <i className="fas fa-calendar-alt"></i>
-            <span>Регистрация: {targetUser.registered || 'Не указана'}</span>
+            <span>Регистрация: {formatRegisteredDate(targetUser.registered) || 'Не указана'}</span>
           </div>
         </div>
 
@@ -327,31 +352,38 @@ function Profile() {
               </div>
               <div className="form-group">
                 <label>Новый пароль (необязательно)</label>
-                <input 
-                  type="password" 
-                  name="password" 
-                  placeholder="Минимум 6 символов" 
-                  value={editData.password} 
-                  onChange={(e) => setEditData({...editData, password: e.target.value})} 
+                <PasswordInput
+                  name="password"
+                  placeholder="Мин. 8 символов: Aa1!"
+                  value={editData.password}
+                  onChange={(e) => setEditData({ ...editData, password: e.target.value })}
                 />
+                <small style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
+                  {PASSWORD_HINT}
+                </small>
               </div>
               <div className="form-group">
                 <label>Подтвердите пароль</label>
-                <input 
-                  type="password" 
-                  name="confirmPassword" 
-                  placeholder="Повторите пароль" 
-                  value={editData.confirmPassword} 
-                  onChange={(e) => setEditData({...editData, confirmPassword: e.target.value})} 
+                <PasswordInput
+                  name="confirmPassword"
+                  autoComplete="new-password"
+                  placeholder="Повторите пароль"
+                  value={editData.confirmPassword}
+                  onChange={(e) => setEditData({ ...editData, confirmPassword: e.target.value })}
                 />
               </div>
               <div className="profile-edit-actions">
-                <button type="submit" className="btn-submit">
-                  <i className="fas fa-save"></i> Сохранить
+                <button type="submit" className="btn-submit" disabled={isSaving}>
+                  {isSaving ? (
+                    <><i className="fas fa-spinner fa-spin"></i> Сохранение...</>
+                  ) : (
+                    <><i className="fas fa-save"></i> Сохранить</>
+                  )}
                 </button>
                 <button 
                   type="button" 
                   className="btn-cancel" 
+                  disabled={isSaving}
                   onClick={() => { 
                     setIsEditing(false); 
                     setError(''); 
@@ -373,12 +405,11 @@ function Profile() {
                 <i className="fas fa-cog"></i> Админ-панель
               </Link>
             )}
-            <button 
-              className="btn-logout" 
-              onClick={() => { 
-                localStorage.removeItem('currentUser'); 
-                navigate('/'); 
-                window.location.reload(); 
+            <button
+              className="btn-logout"
+              onClick={async () => {
+                await logout();
+                navigate('/login');
               }}
             >
               <i className="fas fa-sign-out-alt"></i> Выйти

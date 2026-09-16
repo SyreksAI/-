@@ -1,5 +1,5 @@
 # app/schemas_forum.py
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -15,7 +15,8 @@ class ForumCategoryCreate(BaseModel):
     icon: str = Field("fas fa-folder", description="Иконка Font Awesome")
     order: int = Field(0, description="Порядок отображения")
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         if not v.strip():
             raise ValueError('Название категории не может быть пустым')
@@ -33,6 +34,8 @@ class ForumCategoryUpdate(BaseModel):
 
 class ForumCategoryResponse(BaseModel):
     """Ответ с данными категории"""
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     description: Optional[str]
@@ -42,9 +45,6 @@ class ForumCategoryResponse(BaseModel):
     topics_count: int = 0
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # ============================================================
@@ -59,13 +59,15 @@ class ForumTopicCreate(BaseModel):
     is_pinned: bool = False
     is_locked: bool = False
 
-    @validator('title')
+    @field_validator('title')
+    @classmethod
     def validate_title(cls, v):
         if not v.strip():
             raise ValueError('Заголовок не может быть пустым')
         return v.strip()
 
-    @validator('content')
+    @field_validator('content')
+    @classmethod
     def validate_content(cls, v):
         if not v.strip():
             raise ValueError('Содержание не может быть пустым')
@@ -82,6 +84,8 @@ class ForumTopicUpdate(BaseModel):
 
 class ForumTopicResponse(BaseModel):
     """Ответ с данными темы"""
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     title: str
     content: str
@@ -98,9 +102,6 @@ class ForumTopicResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 # ============================================================
 # 💬 ПОСТЫ (ОТВЕТЫ) В ТЕМЕ
@@ -110,7 +111,8 @@ class ForumPostCreate(BaseModel):
     """Создание поста (ответа)"""
     content: str = Field(..., min_length=1, max_length=5000, description="Текст ответа")
 
-    @validator('content')
+    @field_validator('content')
+    @classmethod
     def validate_content(cls, v):
         if not v.strip():
             raise ValueError('Текст ответа не может быть пустым')
@@ -125,6 +127,8 @@ class ForumPostUpdate(BaseModel):
 
 class ForumPostResponse(BaseModel):
     """Ответ с данными поста"""
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     content: str
     topic_id: int
@@ -137,9 +141,6 @@ class ForumPostResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 # ============================================================
 # 💬 КОММЕНТАРИИ К ПОСТАМ
@@ -149,7 +150,8 @@ class ForumCommentCreate(BaseModel):
     """Создание комментария"""
     content: str = Field(..., min_length=1, max_length=1000, description="Текст комментария")
 
-    @validator('content')
+    @field_validator('content')
+    @classmethod
     def validate_content(cls, v):
         if not v.strip():
             raise ValueError('Текст комментария не может быть пустым')
@@ -158,6 +160,8 @@ class ForumCommentCreate(BaseModel):
 
 class ForumCommentResponse(BaseModel):
     """Ответ с данными комментария"""
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     content: str
     post_id: int
@@ -166,9 +170,6 @@ class ForumCommentResponse(BaseModel):
     user_name: str
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # ============================================================

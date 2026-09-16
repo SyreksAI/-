@@ -1,22 +1,25 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { get, post, put, del } from '../utils/api';
+import { fetchTechnologies } from '../utils/studyData';
+import { getAuthHeaders, isAdminUser, clearAuthStorage } from '../utils/auth';
+import { useAuth } from '../context/AuthProvider';
+import AdminPageLoading from '../components/AdminPageLoading';
 
 function AdminPanel({ settings }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   // ===== ПРОВЕРКА СЕССИИ АДМИНА =====
   useEffect(() => {
-    const adminSession = JSON.parse(localStorage.getItem('adminSession'));
-    if (!adminSession || !adminSession.loggedIn) {
+    if (!isAdminUser(user)) {
       navigate('/admin/login');
     }
-  }, [navigate]);
+  }, [navigate, user]);
 
-  // ===== ВЫХОД ИЗ АДМИНКИ =====
   const handleAdminLogout = () => {
     if (window.confirm('Вы уверены, что хотите выйти из админ-панели?')) {
-      localStorage.removeItem('adminSession');
+      clearAuthStorage();
       navigate('/admin/login');
     }
   };
@@ -94,7 +97,7 @@ function AdminPanel({ settings }) {
   useEffect(() => {
     const loadCategories = async () => {
       try {
-        const data = await get('/api/study/technologies');
+        const data = await fetchTechnologies();
         const enrichedData = await Promise.all(data.map(async (tech) => {
           const topics = await get(`/api/study/technologies/${tech.id}/topics`);
           const enrichedTopics = await Promise.all(topics.map(async (topic) => {
@@ -455,8 +458,6 @@ function AdminPanel({ settings }) {
     try {
       await put(`/api/study/technologies/${editingCategoryId}`, {
         name: newCategoryName.trim()
-      }, {
-        'X-User-ID': String(currentUser.id)
       });
       
       setCategories(prev => prev.map(c => 
@@ -493,9 +494,7 @@ function AdminPanel({ settings }) {
     if (!window.confirm(`Удалить технологию "${category.name}" со всеми темами?`)) return;
     
     try {
-      await del(`/api/study/technologies/${id}`, {
-        'X-User-ID': String(currentUser.id)
-      });
+      await del(`/api/study/technologies/${id}`);
       setCategories(prev => prev.filter(c => c.id !== id));
       if (activeCategory === category.name) {
         setActiveCategory(null);
@@ -555,7 +554,7 @@ function AdminPanel({ settings }) {
       let existingCategory = categories.find(c => c.name.toLowerCase() === mainTech.toLowerCase());
 
       if (!existingCategory) {
-        const allTechs = await get('/api/study/technologies');
+        const allTechs = await fetchTechnologies();
         existingCategory = allTechs.find(c => c.name.toLowerCase() === mainTech.toLowerCase());
       }
 
@@ -563,8 +562,6 @@ function AdminPanel({ settings }) {
         const newCat = await post('/api/study/technologies', {
           name: mainTech,
           icon: 'fas fa-code'
-        }, {
-          'X-User-ID': String(currentUser.id)
         });
         existingCategory = newCat;
         setCategories(prev => [...prev, { ...newCat, topics: [] }]);
@@ -584,8 +581,6 @@ function AdminPanel({ settings }) {
           description: description,
           technology_id: existingCategory.id,
           sort_order: 0
-        }, {
-          'X-User-ID': String(currentUser.id)
         });
 
         setCategories(prev => prev.map(c => {
@@ -610,8 +605,6 @@ function AdminPanel({ settings }) {
           description: description,
           technology_id: existingCategory.id,
           sort_order: 0
-        }, {
-          'X-User-ID': String(currentUser.id)
         });
 
         // Добавляем тему в локальное состояние
@@ -632,8 +625,6 @@ function AdminPanel({ settings }) {
             description: '',
             topic_id: newTopicData.id,
             sort_order: 0
-          }, {
-            'X-User-ID': String(currentUser.id)
           });
 
           setCategories(prev => prev.map(c => {
@@ -673,8 +664,6 @@ function AdminPanel({ settings }) {
               description: '',
               topic_id: existingTopic.id,
               sort_order: 0
-            }, {
-              'X-User-ID': String(currentUser.id)
             });
 
             // Обновляем локальное состояние
@@ -736,9 +725,7 @@ function AdminPanel({ settings }) {
     if (!window.confirm('Удалить тему со всеми подтемами?')) return;
     
     try {
-      await del(`/api/study/topics/${id}`, {
-        'X-User-ID': String(currentUser.id)
-      });
+      await del(`/api/study/topics/${id}`);
       setCategories(prev => prev.map(c => {
         if (c.name !== activeCategory) return c;
         return { ...c, topics: c.topics.filter(t => t.id !== id) };
@@ -802,8 +789,6 @@ function AdminPanel({ settings }) {
           description: description,
           topic_id: activeTopicData.id,  // ✅ ДОБАВИТЬ!
           sort_order: 0
-        }, {
-          'X-User-ID': String(currentUser.id)
         });
         setCategories(prev => prev.map(c => {
           if (c.name !== activeCategory) return c;
@@ -827,8 +812,6 @@ function AdminPanel({ settings }) {
           description: description,
           topic_id: activeTopicData.id,
           sort_order: 0
-        }, {
-          'X-User-ID': String(currentUser.id)
         });
         setCategories(prev => prev.map(c => {
           if (c.name !== activeCategory) return c;
@@ -865,9 +848,7 @@ function AdminPanel({ settings }) {
     if (!window.confirm('Удалить подтему?')) return;
     
     try {
-      await del(`/api/study/subtopics/${id}`, {
-        'X-User-ID': String(currentUser.id)
-      });
+      await del(`/api/study/subtopics/${id}`);
       setCategories(prev => prev.map(c => {
         if (c.name !== activeCategory) return c;
         return {
@@ -989,38 +970,8 @@ function AdminPanel({ settings }) {
   const totalTopics = useMemo(() => categories.reduce((acc, c) => acc + (c.topics?.length || 0), 0), [categories]);
   const totalSubTopics = useMemo(() => categories.reduce((acc, c) => acc + (c.topics?.reduce((s, t) => s + (t.subtopics?.length || 0), 0) || 0), 0), [categories]);
 
-  // Показываем загрузку
   if (loading) {
-    return (
-      <div className="admin-container">
-        <div className="admin-sidebar">
-          <div className="header">
-            <img className="logo" src="/logo.png" alt="logo" />
-          </div>
-          <div className="admin-menu">
-            <div className="admin-menu-title">Навигация</div>
-            <Link to="/" className="admin-menu-item"><i className="fas fa-home"></i> На главную</Link>
-            <Link to="/admin" className="admin-menu-item active"><i className="fas fa-book"></i> Управление темами</Link>
-            <Link to="/admin/users" className="admin-menu-item"><i className="fas fa-users"></i> Пользователи</Link>
-            <Link to="/admin/settings" className="admin-menu-item"><i className="fas fa-sliders-h"></i> Настройки</Link>
-            <div className="admin-menu-divider"></div>
-            <button className="admin-menu-item logout" onClick={handleAdminLogout}>
-              <i className="fas fa-sign-out-alt"></i> Выйти из админки
-            </button>
-          </div>
-          <div className="footer">
-            <img src="/user_logo_one.png" alt="user_logo_one" className="user_logo" />
-            <h3 className="username">Admin</h3>
-          </div>
-        </div>
-        <div className="admin-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
-          <div style={{ textAlign: 'center' }}>
-            <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', color: '#7c3aed' }}></i>
-            <p style={{ color: '#94a3b8', marginTop: '12px' }}>Загрузка данных...</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <AdminPageLoading message="Загрузка данных..." />;
   }
 
   return (

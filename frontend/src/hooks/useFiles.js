@@ -1,165 +1,354 @@
-// frontend/src/hooks/useFiles.js
-import { useState, useRef } from 'react'; // ← добавить useRef
-import { formatFileSize, getFileIcon, getFileColor } from '../utils/helpers';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { formatFileSize, getFileColor, getFileIcon } from '../utils/helpers';
+import { attachmentDisplayUrl } from '../utils/attachmentUrl';
+import { getStoredAuthToken } from '../utils/authToken';
+import { getUploadKind, parseUploadError, validateUploadFile } from '../utils/uploadLimits';
+import { captureVideoPoster } from '../utils/videoPoster';
+import { isRetainedPreviewUrl } from '../utils/uploadPreviewCache';
+
+const makeKey = () => `staged-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const readPreview = (file) =>
+  new Promise((resolve) => {
+    if (!file.type?.startsWith('image/')) {
+      resolve(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+
+const readVideoMeta = (file, kind) =>
+  new Promise((resolve) => {
+    if (kind !== 'video' && !file.type?.startsWith('video/')) {
+      resolve({ duration: null, width: null, height: null, preview: null });
+      return;
+    }
+
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+
+    const finish = async () => {
+      const duration = Number.isFinite(video.duration) ? video.duration : null;
+      const width = video.videoWidth || null;
+      const height = video.videoHeight || null;
+
+      try {
+        const preview = await captureVideoPoster(url);
+        URL.revokeObjectURL(url);
+        resolve({ duration, width, height, preview });
+      } catch {
+        URL.revokeObjectURL(url);
+        resolve({ duration, width, height, preview: null });
+      }
+    };
+
+    video.onloadedmetadata = () => {
+      finish();
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve({ duration: null, width: null, height: null, preview: null });
+    };
+    video.src = url;
+  });
 
 export function useFiles(user, selectedChat) {
-  const [selectedFiles, setSelectedFiles] = useState([]);
-  const [uploadProgress, setUploadProgress] = useState({});
+  const [stagedItems, setStagedItems] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [filePreviews, setFilePreviews] = useState({});
-  
-  // ✅ Кеш для URL — сохраняется между рендерами
   const urlCache = useRef(new Map());
+  const previewUrlsRef = useRef(new Set());
 
-  /**
-   * Получение URL файла с кешированием
-   */
-  const getFileUrl = (file) => {
+  const trackPreview = useCallback((preview) => {
+    if (preview && typeof preview === 'string' && preview.startsWith('blob:')) {
+      previewUrlsRef.current.add(preview);
+    }
+  }, []);
+
+  const revokePreview = useCallback((preview) => {
+    if (!preview || isRetainedPreviewUrl(preview)) return;
+    if (previewUrlsRef.current.has(preview)) {
+      URL.revokeObjectURL(preview);
+      previewUrlsRef.current.delete(preview);
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      previewUrlsRef.current.forEach((url) => {
+        if (!isRetainedPreviewUrl(url)) URL.revokeObjectURL(url);
+      });
+      previewUrlsRef.current.clear();
+    },
+    [],
+  );
+
+  const getFileUrl = useCallback((file) => {
     if (!file) return '#';
     if (file.preview) return file.preview;
-    
-    const cacheKey = file.path || file.url || file.name || file.originalName || file.id;
+    const cacheKey = file.id || file.path || file.url || file.name;
     if (urlCache.current.has(cacheKey)) {
       return urlCache.current.get(cacheKey);
     }
-    
-    let url = file.url || file.path || '#';
-    try {
-      url = encodeURI(url);
-    } catch (e) {
-      url = url.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
-    }
-    
+    const url = attachmentDisplayUrl(file);
     urlCache.current.set(cacheKey, url);
     return url;
-  };
+  }, []);
 
-  /**
-   * Загрузка файлов на сервер
-   */
-  const uploadFiles = async (files) => {
-    if (files.length === 0) return [];
-    
-    setIsUploading(true);
-    const uploadedFiles = [];
-    
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('chat_id', selectedChat);
-      formData.append('user_id', user.id);
-      
-      try {
-        setUploadProgress(prev => ({ ...prev, [i]: 0 }));
-        
-        const response = await fetch('/api/upload/upload', {
-          method: 'POST',
-          headers: { 'X-User-ID': String(user.id) },
-          body: formData
-        });
-        
-        let progress = 0;
-        const interval = setInterval(() => {
-          progress += Math.random() * 15;
-          if (progress > 90) {
-            progress = 90;
-            clearInterval(interval);
-          }
-          setUploadProgress(prev => ({ ...prev, [i]: Math.min(progress, 90) }));
-        }, 200);
-        
-        if (!response.ok) {
-          throw new Error('Ошибка загрузки файла');
+  const addFiles = useCallback(
+    async (fileList) => {
+      const files = Array.from(fileList || []);
+      if (!files.length) return;
+
+      const entries = await Promise.all(
+        files.map(async (file) => {
+          const kind = getUploadKind(file);
+          const [preview, videoMeta] = await Promise.all([
+            readPreview(file),
+            readVideoMeta(file, kind),
+          ]);
+          const validation = validateUploadFile(file);
+          const resolvedPreview = preview || videoMeta.preview;
+          trackPreview(resolvedPreview);
+          return {
+            key: makeKey(),
+            file,
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            kind,
+            preview: resolvedPreview,
+            duration: videoMeta.duration,
+            width: videoMeta.width,
+            height: videoMeta.height,
+            status: validation.ok ? 'ready' : 'error',
+            errorMessage: validation.message,
+            progress: 0,
+            attachment: null,
+          };
+        }),
+      );
+      setStagedItems((prev) => [...prev, ...entries]);
+    },
+    [trackPreview],
+  );
+
+  const handleFileSelect = useCallback(
+    (e) => {
+      addFiles(e.target.files);
+      e.target.value = '';
+    },
+    [addFiles],
+  );
+
+  const handlePaste = useCallback(
+    (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files = [];
+      for (const item of items) {
+        if (item.kind === 'file') {
+          const f = item.getAsFile();
+          if (f) files.push(f);
         }
-        
-        const data = await response.json();
-        clearInterval(interval);
-        setUploadProgress(prev => ({ ...prev, [i]: 100 }));
-        
-        const fileData = {
-          originalName: file.name,
-          name: file.name,
-          serverName: data.name || data.filename || `file_${Date.now()}`,
-          size: file.size,
-          type: file.type,
-          path: data.path || data.url,
-          url: data.url || data.path,
-          isImage: file.type && file.type.startsWith('image/'),
-          isVideo: file.type && file.type.startsWith('video/'),
-          isAudio: file.type && file.type.startsWith('audio/'),
-          preview: filePreviews[i] || null
+      }
+      if (files.length) {
+        e.preventDefault();
+        addFiles(files);
+      }
+    },
+    [addFiles],
+  );
+
+  const handleDrop = useCallback(
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer?.files?.length) {
+        addFiles(e.dataTransfer.files);
+      }
+    },
+    [addFiles],
+  );
+
+  const removeStaged = useCallback(
+    (index) => {
+      setStagedItems((prev) => {
+        const item = prev[index];
+        if (item?.preview) revokePreview(item.preview);
+        return prev.filter((_, i) => i !== index);
+      });
+    },
+    [revokePreview],
+  );
+
+  const clearStaged = useCallback(() => {
+    setStagedItems((prev) => {
+      prev.forEach((item) => {
+        if (item?.preview) revokePreview(item.preview);
+      });
+      return [];
+    });
+  }, [revokePreview]);
+
+  const uploadOneItem = useCallback(
+    (item, chatId, onProgress) =>
+      new Promise((resolve, reject) => {
+        if (!item?.file) {
+          reject(new Error('Файл недоступен'));
+          return;
+        }
+        if (item.attachment) {
+          onProgress?.(100);
+          resolve(item.attachment);
+          return;
+        }
+
+        const xhr = new XMLHttpRequest();
+        const formData = new FormData();
+        formData.append('file', item.file);
+        formData.append('chat_id', chatId);
+        if (item.duration != null) formData.append('duration', String(item.duration));
+        if (item.width != null) formData.append('width', String(item.width));
+        if (item.height != null) formData.append('height', String(item.height));
+
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return;
+          onProgress?.(Math.round((event.loaded / event.total) * 100));
         };
-        
-        uploadedFiles.push(fileData);
-        
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch (err) {
+              reject(err);
+            }
+            return;
+          }
+          reject(new Error(parseUploadError(xhr)));
+        };
+
+        xhr.onerror = () => reject(new Error(parseUploadError({ status: 0, responseText: '' })));
+
+        xhr.open('POST', '/api/chat/upload');
+        const token = getStoredAuthToken();
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.send(formData);
+      }),
+    [],
+  );
+
+  const uploadOne = useCallback(
+    (item, index) =>
+      uploadOneItem(item, selectedChat, (pct) => {
+        setStagedItems((prev) =>
+          prev.map((row, i) => (i === index ? { ...row, progress: pct, status: 'uploading' } : row)),
+        );
+      }).then((data) => {
+        setStagedItems((prev) =>
+          prev.map((row, i) =>
+            i === index ? { ...row, progress: 100, status: 'done', attachment: data } : row,
+          ),
+        );
+        return data;
+      }),
+    [selectedChat, uploadOneItem],
+  );
+
+  const uploadStaged = useCallback(async () => {
+    if (!stagedItems.length) return [];
+    const blocked = stagedItems.find((item) => item.status === 'error');
+    if (blocked) {
+      throw new Error(blocked.errorMessage || 'Удалите или замените файлы с ошибкой');
+    }
+    setIsUploading(true);
+    const uploaded = [];
+
+    for (let i = 0; i < stagedItems.length; i += 1) {
+      const item = stagedItems[i];
+      if (item.attachment) {
+        uploaded.push(item.attachment);
+        continue;
+      }
+      try {
+        setStagedItems((prev) =>
+          prev.map((row, idx) => (idx === i ? { ...row, status: 'uploading', progress: 0 } : row)),
+        );
+        const data = await uploadOne(item, i);
+        uploaded.push(data);
       } catch (error) {
         console.error('Upload error:', error);
-        setUploadProgress(prev => ({ ...prev, [i]: -1 }));
+        const message = error?.message || 'Не удалось загрузить файл';
+        setStagedItems((prev) =>
+          prev.map((row, idx) =>
+            idx === i ? { ...row, status: 'error', progress: 0, errorMessage: message } : row,
+          ),
+        );
+        setIsUploading(false);
+        throw error;
       }
     }
-    
+
     setIsUploading(false);
-    return uploadedFiles;
-  };
+    return uploaded;
+  }, [stagedItems, uploadOne]);
 
-  /**
-   * Выбор файлов
-   */
-  const handleFileSelect = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-    
-    setSelectedFiles(prev => [...prev, ...files]);
-    
-    files.forEach((file, index) => {
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const previewIndex = index + selectedFiles.length;
-          setFilePreviews(prev => ({ ...prev, [previewIndex]: reader.result }));
-        };
-        reader.readAsDataURL(file);
+  const retryStaged = useCallback(
+    async (index) => {
+      const item = stagedItems[index];
+      if (!item?.file) return null;
+      setIsUploading(true);
+      try {
+        const data = await uploadOne(item, index);
+        setIsUploading(false);
+        return data;
+      } catch (error) {
+        const message = error?.message || 'Не удалось загрузить файл';
+        setStagedItems((prev) =>
+          prev.map((row, i) =>
+            i === index ? { ...row, status: 'error', errorMessage: message } : row,
+          ),
+        );
+        setIsUploading(false);
+        throw error;
       }
-    });
-    
-    e.target.value = '';
-  };
+    },
+    [stagedItems, uploadOne],
+  );
 
-  /**
-   * Удаление файла из списка
-   */
-  const removeFile = (index) => {
-    setFilePreviews(prev => {
-      const newPreviews = { ...prev };
-      delete newPreviews[index];
-      return newPreviews;
-    });
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  /**
-   * Очистка всех файлов
-   */
-  const clearFiles = () => {
-    setSelectedFiles([]);
-    setUploadProgress({});
-    setFilePreviews({});
-  };
+  const selectedFiles = stagedItems.map((s) => s.file).filter(Boolean);
+  const uploadProgress = Object.fromEntries(
+    stagedItems.map((s, i) => [i, s.status === 'error' ? -1 : s.progress]),
+  );
 
   return {
+    stagedItems,
     selectedFiles,
-    setSelectedFiles,
     uploadProgress,
     isUploading,
-    filePreviews,
+    filePreviews: Object.fromEntries(
+      stagedItems.map((s, i) => (s.preview ? [i, s.preview] : [])).filter((e) => e.length),
+    ),
     getFileUrl,
-    uploadFiles,
+    uploadFiles: uploadStaged,
+    uploadStaged,
     handleFileSelect,
-    removeFile,
-    clearFiles,
+    handlePaste,
+    handleDrop,
+    addFiles,
+    removeFile: removeStaged,
+    removeStaged,
+    clearFiles: clearStaged,
+    clearStaged,
+    retryStaged,
     formatFileSize,
     getFileIcon,
-    getFileColor
+    getFileColor,
   };
 }

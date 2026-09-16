@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import CopyrightNotice from '../components/CopyrightNotice';
 
 function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -46,7 +47,7 @@ function ForgotPassword() {
       <div className="auth-container">
         <div className="auth-header">
           <div className="auth-logo">
-            <img src="/logo.png" alt="ДубльПар.рф" className="auth-logo-img" />
+            <img src="/logo.png" alt="дубльпар.online" className="auth-logo-img" />
           </div>
           <h1>Восстановление пароля</h1>
           <p>Введите email, чтобы сбросить пароль</p>
@@ -55,11 +56,14 @@ function ForgotPassword() {
         {message && <div className="auth-success">{message}</div>}
         {error && <div className="auth-error">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="auth-form">
+        <form onSubmit={handleSubmit} className="auth-form" autoComplete="on">
           <div className="form-group">
-            <label>Email</label>
+            <label htmlFor="forgot-email">Email</label>
             <input
+              id="forgot-email"
+              name="email"
               type="email"
+              autoComplete="email"
               placeholder="Введите email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -80,6 +84,8 @@ function ForgotPassword() {
         <div className="auth-footer">
           <p>Вспомнили пароль? <Link to="/login">Войти</Link></p>
         </div>
+
+        <CopyrightNotice />
       </div>
     </div>
   );

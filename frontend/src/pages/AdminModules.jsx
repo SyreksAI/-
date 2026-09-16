@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { clearAuthStorage } from '../utils/auth';
 
 function AdminModules() {
   const navigate = useNavigate();
@@ -55,7 +56,7 @@ function AdminModules() {
   // ===== ВЫХОД ИЗ АДМИНКИ =====
   const handleAdminLogout = () => {
     if (window.confirm('Вы уверены, что хотите выйти из админ-панели?')) {
-      localStorage.removeItem('adminSession');
+      clearAuthStorage();
       navigate('/admin/login');
     }
   };
@@ -69,7 +70,7 @@ function AdminModules() {
       {/* Левая панель */}
       <div className="admin-sidebar">
         <div className="header">
-          <img className='logo' src="/public/logo.png" alt="logo" />
+          <img className='logo' src="/logo.png" alt="logo" />
         </div>
         
         <div className="admin-menu">

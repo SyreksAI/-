@@ -1,6 +1,7 @@
-// frontend/src/components/ImageModal.jsx
-
 import React, { useState, useEffect, useRef } from 'react';
+import { attachmentDisplayUrl } from '../utils/attachmentUrl';
+import { syncMediaAuthCookie } from '../utils/authToken';
+import { fetchMediaBlob } from '../utils/mediaCache';
 
 function ImageModal({ 
   isOpen, 
@@ -23,8 +24,30 @@ function ImageModal({
   const [isZoomed, setIsZoomed] = useState(false);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
+  const [mediaSrc, setMediaSrc] = useState(null);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaError, setMediaError] = useState(false);
   const imgRef = useRef(null);
   const containerRef = useRef(null);
+  const videoRef = useRef(null);
+
+  const currentFile = isOpen && files?.length ? files[currentIndex] : null;
+
+  const isImage = currentFile && (
+    currentFile.kind === 'image'
+    || currentFile.isImage
+    || (currentFile.type && currentFile.type.startsWith('image/'))
+    || (currentFile.mime && currentFile.mime.startsWith('image/'))
+    || (currentFile.name && /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i.test(currentFile.name))
+  );
+
+  const isVideo = currentFile && (
+    currentFile.kind === 'video'
+    || currentFile.isVideo
+    || (currentFile.type && currentFile.type.startsWith('video/'))
+    || (currentFile.mime && currentFile.mime.startsWith('video/'))
+    || (currentFile.name && /\.(mp4|avi|mov|wmv|flv|mkv|webm)$/i.test(currentFile.name))
+  );
 
   // Сброс при открытии нового файла
   useEffect(() => {
@@ -32,7 +55,61 @@ function ImageModal({
     setPosition({ x: 0, y: 0 });
     setIsZoomed(false);
     setShowContextMenu(false);
+    setMediaSrc(null);
+    setMediaError(false);
   }, [currentIndex]);
+
+  useEffect(() => {
+    if (!isOpen || !currentFile) {
+      setMediaSrc(null);
+      setMediaLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    if (isImage) {
+      setMediaLoading(true);
+      setMediaError(false);
+      fetchMediaBlob(currentFile, 'full')
+        .then((url) => {
+          if (!cancelled) {
+            setMediaSrc(url);
+            setMediaLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setMediaError(true);
+            setMediaLoading(false);
+            setMediaSrc(attachmentDisplayUrl(currentFile));
+          }
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (isVideo) {
+      syncMediaAuthCookie();
+      const streamUrl = attachmentDisplayUrl(currentFile);
+      setMediaSrc(streamUrl);
+      setMediaLoading(false);
+      setMediaError(false);
+      const video = videoRef.current;
+      if (video) {
+        video.src = streamUrl;
+        video.load();
+      }
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setMediaSrc(null);
+    setMediaLoading(false);
+    return undefined;
+  }, [isOpen, currentFile, isImage, isVideo, currentIndex]);
 
   // Закрытие по Escape
   useEffect(() => {
@@ -53,40 +130,7 @@ function ImageModal({
     };
   }, [isOpen, onClose, onPrev, onNext]);
 
-  if (!isOpen || !files || files.length === 0) return null;
-
-  const currentFile = files[currentIndex];
-  if (!currentFile) return null;
-
-  const isImage = currentFile.isImage || 
-    (currentFile.type && currentFile.type.startsWith('image/')) ||
-    (currentFile.name && /\.(png|jpg|jpeg|gif|svg|webp|bmp|ico)$/i.test(currentFile.name));
-
-  const isVideo = currentFile.isVideo ||
-    (currentFile.type && currentFile.type.startsWith('video/')) ||
-    (currentFile.name && /\.(mp4|avi|mov|wmv|flv|mkv|webm)$/i.test(currentFile.name));
-
-    const getFileUrl = (file) => {
-        if (!file) return '#';
-        if (file.preview) return file.preview;
-        
-        let url = file.url || file.path || '#';
-        
-        try {
-            url = encodeURI(url);
-        } catch (e) {
-            url = url.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
-        }
-        
-        // ❌ УБЕРИ ЭТОТ БЛОК:
-        // if (url !== '#') {
-        //   url += (url.includes('?') ? '&' : '?') + 't=' + Date.now();
-        // }
-        
-        return url;
-    };
-
-  const fileUrl = getFileUrl(currentFile);
+  if (!isOpen || !files || files.length === 0 || !currentFile) return null;
 
   // ✅ Зум по клику — на весь экран
   const handleImageClick = (e) => {
@@ -206,31 +250,47 @@ function ImageModal({
           onMouseLeave={handleMouseUp}
           style={{ cursor: scale > 1 ? 'grab' : 'default' }}
         >
-          {isImage && (
+          {mediaLoading && (
+            <div className="image-modal-loading">
+              <i className="fas fa-spinner fa-spin" />
+            </div>
+          )}
+          {mediaError && isImage && (
+            <div className="image-modal-loading image-modal-loading-error">
+              Не удалось загрузить изображение
+            </div>
+          )}
+          {isImage && mediaSrc && !mediaLoading && (
             <img 
               ref={imgRef}
-              src={fileUrl} 
+              src={mediaSrc} 
               alt="" 
               className={`image-modal-img ${isZoomed ? 'zoomed' : ''}`}
               style={{
                 transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
                 transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
               }}
-              loading="lazy"
               draggable={false}
               onClick={handleImageClick}
             />
           )}
-          {isVideo && (
+          {isVideo && mediaSrc && (
             <video 
-              src={fileUrl} 
-              controls 
+              ref={videoRef}
+              src={mediaSrc}
+              controls
               autoPlay
+              playsInline
+              preload="auto"
               className="image-modal-video"
               controlsList="nodownload"
-            >
-              Ваш браузер не поддерживает видео
-            </video>
+              onError={() => setMediaError(true)}
+            />
+          )}
+          {mediaError && isVideo && (
+            <div className="image-modal-loading image-modal-loading-error">
+              Не удалось воспроизвести видео
+            </div>
           )}
           {!isImage && !isVideo && (
             <div className="image-modal-file-info">

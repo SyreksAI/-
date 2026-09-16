@@ -1,21 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { post } from '../utils/api';
+import { useAuth } from '../context/AuthProvider';
 
 function useActivityTracker() {
+  const { user } = useAuth();
   const pingIntervalRef = useRef(null);
   const isPingingRef = useRef(false);
 
   useEffect(() => {
-    let currentUser = null;
-    try {
-      const raw = localStorage.getItem('currentUser');
-      currentUser = raw ? JSON.parse(raw) : null;
-    } catch {
-      currentUser = null;
-    }
-    
-    if (!currentUser) {
-      console.log('❌ Пользователь не авторизован, активность не отслеживается');
+    if (!user?.id) {
       return;
     }
 
@@ -25,22 +18,17 @@ function useActivityTracker() {
       isPingingRef.current = true;
 
       try {
-        await post('/api/users/ping', {}, {
-          'X-User-ID': String(currentUser.id)
-        });
-        console.log('🟢 PING отправлен');
+        await post('/api/users/ping', {});
       } catch (error) {
-        console.error('❌ Ошибка отправки PING:', error);
+        if (import.meta.env.DEV) {
+          console.error('Ping error:', error);
+        }
       } finally {
         isPingingRef.current = false;
       }
     };
 
-    // Отправляем PING сразу при загрузке страницы
-    sendPing();
-
-    // Отправляем PING каждые 30 секунд
-    pingIntervalRef.current = setInterval(sendPing, 30000);
+    pingIntervalRef.current = setInterval(sendPing, 90000);
 
     // Очистка при размонтировании
     return () => {
@@ -49,7 +37,7 @@ function useActivityTracker() {
         pingIntervalRef.current = null;
       }
     };
-  }, []);
+  }, [user?.id]);
 
   return null;
 }

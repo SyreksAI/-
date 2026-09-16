@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { get, put, del } from '../utils/api';
+import { Link } from 'react-router-dom';
+import { put, del, adminAPI } from '../utils/api';
+import { useAuth } from '../context/AuthProvider';
 import websocketService from '../services/websocket';
+import AdminPageLoading from '../components/AdminPageLoading';
+import { formatRegisteredDate } from '../utils/formatDate';
 
 function AdminUsers() {
-  const navigate = useNavigate();
+  const { user, showToast } = useAuth();
   const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -15,31 +19,24 @@ function AdminUsers() {
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // ===== ПРОВЕРКА СЕССИИ АДМИНА =====
-  useEffect(() => {
-    const adminSession = JSON.parse(localStorage.getItem('adminSession'));
-    if (!adminSession || !adminSession.loggedIn) {
-      navigate('/admin/login');
+  const loadUsers = async ({ silent = false } = {}) => {
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setInitialLoading(true);
     }
-  }, [navigate]);
-
-  // ===== ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ ИЗ API =====
-  const loadUsers = async () => {
-    setLoading(true);
     try {
-      const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-      if (!currentUser) {
-        setLoading(false);
-        return;
-      }
-      const data = await get('/api/users/', {
-        'X-User-ID': String(currentUser.id)
-      });
-      setUsers(data);
+      const params = {};
+      if (searchTerm.trim()) params.query = searchTerm.trim();
+      if (roleFilter !== 'all') params.role = roleFilter;
+      const data = await adminAPI.getUsers(params);
+      setUsers(data.items || []);
     } catch (error) {
       console.error('Ошибка загрузки пользователей:', error);
+      showToast?.(error.message || 'Ошибка загрузки', 'error');
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -49,12 +46,8 @@ function AdminUsers() {
 
   // ===== WEBSOCKET ДЛЯ ОБНОВЛЕНИЯ СТАТУСОВ =====
   useEffect(() => {
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-    if (currentUser) {
-      // Подключаем WebSocket если ещё не подключён
-      if (!websocketService.isConnected) {
-        websocketService.connect(currentUser.id);
-      }
+    if (user?.id && !websocketService.isConnected) {
+      websocketService.connect(user.id);
     }
 
     const handleStatusUpdate = (data) => {
@@ -62,7 +55,7 @@ function AdminUsers() {
       if (data.type === 'user_status_changed' || 
           data.type === 'connection_status' ||
           data.type === 'new_message') {
-        loadUsers();
+        loadUsers({ silent: true });
       }
     };
 
@@ -78,7 +71,7 @@ function AdminUsers() {
   // ===== ОБНОВЛЕНИЕ КАЖДЫЕ 10 СЕКУНД (запасной вариант) =====
   useEffect(() => {
     const interval = setInterval(() => {
-      loadUsers();
+      loadUsers({ silent: true });
     }, 10000);
 
     return () => clearInterval(interval);
@@ -102,7 +95,7 @@ function AdminUsers() {
     online: users.filter(u => u.is_online && !u.is_banned).length,
     blocked: users.filter(u => u.is_banned).length,
     admins: users.filter(u => u.role === 'admin').length,
-    students: users.filter(u => u.role === 'student' || !u.role).length,
+    users_count: users.filter(u => u.role === 'user' || u.role === 'student' || !u.role).length,
   };
 
   // ===== РЕДАКТИРОВАНИЕ ПОЛЬЗОВАТЕЛЯ =====
@@ -111,44 +104,48 @@ function AdminUsers() {
     setEditForm({
       name: user.name || '',
       email: user.email || '',
-      role: user.role || 'student'
+      role: user.role || 'user'
     });
     setShowEditModal(true);
   };
 
   const handleSaveUser = async () => {
     if (!selectedUser) return;
+    const roleChanged = editForm.role && editForm.role !== selectedUser.role;
+    if (roleChanged && editForm.role === 'superadmin') {
+      if (!window.confirm('Назначить роль superadmin? Это необратимо через обычного admin.')) return;
+    }
     try {
-      const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-      await put(`/api/users/${selectedUser.id}`, editForm, {
-        'X-User-ID': String(currentUser.id)
+      if (roleChanged) {
+        await adminAPI.changeRole(selectedUser.id, editForm.role);
+      }
+      await put(`/api/users/${selectedUser.id}`, {
+        name: editForm.name,
+        email: editForm.email,
       });
-      setUsers(prev => prev.map(u =>
-        u.id === selectedUser.id ? { ...u, ...editForm } : u
-      ));
+      await loadUsers();
       setShowEditModal(false);
-      alert('✅ Пользователь обновлён!');
+      showToast?.('Пользователь обновлён', 'success');
     } catch (error) {
       console.error('Ошибка обновления пользователя:', error);
-      alert('❌ Ошибка обновления пользователя');
+      showToast?.(error.message || 'Ошибка обновления', 'error');
     }
   };
 
   // ===== БЛОКИРОВКА/РАЗБЛОКИРОВКА =====
-  const handleToggleBan = async (user) => {
-    if (!window.confirm(`Вы уверены, что хотите ${user.is_banned ? 'разблокировать' : 'заблокировать'} пользователя "${user.name}"?`)) return;
+  const handleToggleBan = async (targetUser) => {
+    if (!window.confirm(`Вы уверены, что хотите ${targetUser.is_banned ? 'разблокировать' : 'заблокировать'} пользователя "${targetUser.name}"?`)) return;
     try {
-      const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-      await put(`/api/users/${user.id}/toggle-ban`, {}, {
-        'X-User-ID': String(currentUser.id)
-      });
-      setUsers(prev => prev.map(u =>
-        u.id === user.id ? { ...u, is_banned: !u.is_banned } : u
-      ));
-      alert(`✅ Пользователь ${user.is_banned ? 'разблокирован' : 'заблокирован'}!`);
+      if (targetUser.is_banned) {
+        await adminAPI.unbanUser(targetUser.id);
+      } else {
+        await adminAPI.banUser(targetUser.id);
+      }
+      await loadUsers();
+      showToast?.(targetUser.is_banned ? 'Пользователь разблокирован' : 'Пользователь заблокирован', 'success');
     } catch (error) {
       console.error('Ошибка изменения статуса:', error);
-      alert('❌ Ошибка изменения статуса');
+      showToast?.(error.message || 'Ошибка изменения статуса', 'error');
     }
   };
 
@@ -157,9 +154,7 @@ function AdminUsers() {
     if (!window.confirm(`Вы уверены, что хотите удалить пользователя "${user.name}"? Это действие необратимо!`)) return;
     try {
       const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-      await del(`/api/users/${user.id}`, {
-        'X-User-ID': String(currentUser.id)
-      });
+      await del(`/api/users/${user.id}`);
       setUsers(prev => prev.filter(u => u.id !== user.id));
       alert('✅ Пользователь удалён!');
     } catch (error) {
@@ -188,12 +183,9 @@ function AdminUsers() {
   const handleBlockSelected = async () => {
     if (!selectedUsers.length) return;
     if (!window.confirm(`Заблокировать ${selectedUsers.length} пользователей?`)) return;
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
     for (const id of selectedUsers) {
       try {
-        await put(`/api/users/${id}/toggle-ban`, {}, {
-          'X-User-ID': String(currentUser.id)
-        });
+        await adminAPI.banUser(id);
         setUsers(prev => prev.map(u =>
           u.id === id ? { ...u, is_banned: true } : u
         ));
@@ -202,18 +194,15 @@ function AdminUsers() {
       }
     }
     setSelectedUsers([]);
-    alert('✅ Пользователи заблокированы!');
+    showToast?.('Пользователи заблокированы', 'success');
   };
 
   const handleUnblockSelected = async () => {
     if (!selectedUsers.length) return;
     if (!window.confirm(`Разблокировать ${selectedUsers.length} пользователей?`)) return;
-    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
     for (const id of selectedUsers) {
       try {
-        await put(`/api/users/${id}/toggle-ban`, {}, {
-          'X-User-ID': String(currentUser.id)
-        });
+        await adminAPI.unbanUser(id);
         setUsers(prev => prev.map(u =>
           u.id === id ? { ...u, is_banned: false } : u
         ));
@@ -222,7 +211,7 @@ function AdminUsers() {
       }
     }
     setSelectedUsers([]);
-    alert('✅ Пользователи разблокированы!');
+    showToast?.('Пользователи разблокированы', 'success');
   };
 
   const handleDeleteSelected = async () => {
@@ -231,9 +220,7 @@ function AdminUsers() {
     const currentUser = JSON.parse(localStorage.getItem('currentUser'));
     for (const id of selectedUsers) {
       try {
-        await del(`/api/users/${id}`, {
-          'X-User-ID': String(currentUser.id)
-        });
+        await del(`/api/users/${id}`);
         setUsers(prev => prev.filter(u => u.id !== id));
       } catch (error) {
         console.error('Ошибка удаления:', error);
@@ -244,17 +231,13 @@ function AdminUsers() {
   };
 
   // ===== ВЫХОД =====
-  const handleAdminLogout = () => {
-    if (window.confirm('Вы уверены, что хотите выйти из админ-панели?')) {
-      localStorage.removeItem('adminSession');
-      navigate('/admin/login');
-    }
-  };
 
   // ===== ПОЛУЧИТЬ БЕЙДЖ РОЛИ =====
   const getRoleBadge = (role) => {
+    if (role === 'superadmin') return <span className="role-badge admin">⭐ Superadmin</span>;
     if (role === 'admin') return <span className="role-badge admin">👑 Админ</span>;
-    return <span className="role-badge student">🎓 Студент</span>;
+    if (role === 'moderator') return <span className="role-badge student">🛡 Модератор</span>;
+    return <span className="role-badge student">👤 Пользователь</span>;
   };
 
   // ===== ПОЛУЧИТЬ СТАТУС =====
@@ -274,27 +257,8 @@ function AdminUsers() {
     });
   };
 
-  if (loading) {
-    return (
-      <div className="admin-container">
-        <div className="admin-sidebar">
-          <div className="header"><img className="logo" src="/logo.png" alt="logo" /></div>
-          <div className="admin-menu">
-            <div className="admin-menu-title">Навигация</div>
-            <Link to="/" className="admin-menu-item"><i className="fas fa-home"></i> На главную</Link>
-            <Link to="/admin" className="admin-menu-item"><i className="fas fa-book"></i> Управление темами</Link>
-            <Link to="/admin/users" className="admin-menu-item active"><i className="fas fa-users"></i> Пользователи</Link>
-            <Link to="/admin/settings" className="admin-menu-item"><i className="fas fa-sliders-h"></i> Настройки</Link>
-            <div className="admin-menu-divider"></div>
-            <button className="admin-menu-item logout" onClick={handleAdminLogout}><i className="fas fa-sign-out-alt"></i> Выйти из админки</button>
-          </div>
-          <div className="footer"><img src="/user_logo_one.png" alt="user" className="user_logo" /><h3 className="username">Admin</h3></div>
-        </div>
-        <div className="admin-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
-          <div style={{ textAlign: 'center' }}><i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', color: '#7c3aed' }}></i><p style={{ color: '#94a3b8', marginTop: '12px' }}>Загрузка пользователей...</p></div>
-        </div>
-      </div>
-    );
+  if (initialLoading) {
+    return <AdminPageLoading message="Загрузка пользователей..." />;
   }
 
   return (
@@ -309,7 +273,6 @@ function AdminUsers() {
           <Link to="/admin/support" className="admin-menu-item"><i className="fas fa-headset"></i> Поддержка</Link>
           <Link to="/admin/settings" className="admin-menu-item"><i className="fas fa-sliders-h"></i> Настройки</Link>
           <div className="admin-menu-divider"></div>
-          <button className="admin-menu-item logout" onClick={handleAdminLogout}><i className="fas fa-sign-out-alt"></i> Выйти из админки</button>
         </div>
         <div className="footer"><img src="/user_logo_one.png" alt="user" className="user_logo" /><h3 className="username">Admin</h3></div>
       </div>
@@ -320,8 +283,8 @@ function AdminUsers() {
             <h1><i className="fas fa-users"></i> Список пользователей</h1>
             <p className="admin-subtitle">Управление пользователями платформы</p>
           </div>
-          <button className="btn-submit" onClick={loadUsers}>
-            <i className="fas fa-sync"></i> Обновить
+          <button className="btn-submit" onClick={() => loadUsers({ silent: true })} disabled={refreshing}>
+            <i className={`fas fa-sync${refreshing ? ' fa-spin' : ''}`}></i> Обновить
           </button>
         </div>
 
@@ -375,7 +338,9 @@ function AdminUsers() {
             >
               <option value="all">Все роли</option>
               <option value="admin">👑 Администраторы</option>
-              <option value="student">🎓 Студенты</option>
+              <option value="superadmin">⭐ Superadmin</option>
+              <option value="moderator">🛡 Модераторы</option>
+              <option value="user">👤 Пользователи</option>
             </select>
             <select
               className="admin-filter-select"
@@ -389,20 +354,22 @@ function AdminUsers() {
           </div>
         </div>
 
-        {selectedUsers.length > 0 && (
-          <div className="admin-bulk-actions">
-            <span className="bulk-count">Выбрано: <span>{selectedUsers.length}</span></span>
-            <button className="btn-bulk block" onClick={handleBlockSelected}>
-              <i className="fas fa-lock"></i> Заблокировать
-            </button>
-            <button className="btn-bulk unblock" onClick={handleUnblockSelected}>
-              <i className="fas fa-unlock"></i> Разблокировать
-            </button>
-            <button className="btn-bulk delete" onClick={handleDeleteSelected}>
-              <i className="fas fa-trash"></i> Удалить
-            </button>
-          </div>
-        )}
+        <div className="admin-bulk-slot">
+          {selectedUsers.length > 0 && (
+            <div className="admin-bulk-actions">
+              <span className="bulk-count">Выбрано: <span>{selectedUsers.length}</span></span>
+              <button className="btn-bulk block" onClick={handleBlockSelected}>
+                <i className="fas fa-lock"></i> Заблокировать
+              </button>
+              <button className="btn-bulk unblock" onClick={handleUnblockSelected}>
+                <i className="fas fa-unlock"></i> Разблокировать
+              </button>
+              <button className="btn-bulk delete" onClick={handleDeleteSelected}>
+                <i className="fas fa-trash"></i> Удалить
+              </button>
+            </div>
+          )}
+        </div>
 
         <div className="admin-list-wrapper">
           <div className="list-header">
@@ -442,7 +409,7 @@ function AdminUsers() {
                       <td className="col-email">{user.email || '—'}</td>
                       <td className="col-role">{getRoleBadge(user.role)}</td>
                       <td className="col-status">{getStatusBadge(user)}</td>
-                      <td className="col-date">{user.registered || '—'}</td>
+                      <td className="col-date">{formatRegisteredDate(user.registered) || '—'}</td>
                       <td className="col-actions">
                         <button className="btn-edit-user" onClick={() => handleEditUser(user)} title="Редактировать">
                           <i className="fas fa-pen"></i>
@@ -482,8 +449,10 @@ function AdminUsers() {
               <div className="form-group">
                 <label className="form-label">Роль</label>
                 <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}>
-                  <option value="student">Студент</option>
+                  <option value="user">Пользователь</option>
+                  <option value="moderator">Модератор</option>
                   <option value="admin">Администратор</option>
+                  <option value="superadmin">Superadmin</option>
                 </select>
               </div>
             </div>

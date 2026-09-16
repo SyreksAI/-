@@ -479,7 +479,7 @@ async def delete_post(
 @router.post("/posts/{post_id}/vote")
 async def vote_post(
     post_id: int,
-    vote_type: str = Query(..., regex="^(up|down)$"),
+    vote_type: str = Query(..., pattern="^(up|down)$"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):

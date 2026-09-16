@@ -1,57 +1,31 @@
-from fastapi import APIRouter, Depends, HTTPException, Header
-from sqlalchemy.orm import Session
-from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 import time
-import json
-from ..database import get_db
-from ..models import Group, User
-from ..schemas import GroupCreate, GroupResponse
-from ..websocket_manager import send_notification
+
+from app.chat_utils import parse_members
+from app.database import get_db
+from app.dependencies import get_current_user
+from app.models import Group, User
+from app.schemas import GroupCreate, GroupResponse
+from app.websocket_manager import send_notification
 
 router = APIRouter()
-
-
-async def get_current_user(
-    x_user_id: Optional[int] = Header(None, alias="X-User-ID"),
-    db: Session = Depends(get_db)
-) -> User:
-    if not x_user_id:
-        raise HTTPException(status_code=401, detail="Необходима аутентификация")
-    
-    user = db.query(User).filter(User.id == x_user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    return user
-
-
-def parse_members(members):
-    """Парсит поле members в список"""
-    if members is None:
-        return []
-    if isinstance(members, list):
-        return members
-    if isinstance(members, str):
-        try:
-            return json.loads(members)
-        except:
-            return []
-    try:
-        return json.loads(json.dumps(members))
-    except:
-        return []
 
 
 @router.get("/search")
 async def search_groups(
     q: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Поиск групп по названию"""
     
-    all_groups = db.query(Group).filter(
-        Group.name.ilike(f"%{q}%")
-    ).limit(50).all()
+    all_groups = (
+        await db.execute(
+            select(Group).where(Group.name.ilike(f"%{q}%")).limit(50)
+        )
+    ).scalars().all()
     
     groups = []
     for g in all_groups:
@@ -76,7 +50,7 @@ async def search_groups(
 async def create_group(
     group_data: GroupCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if not group_data.name.strip():
         raise HTTPException(status_code=400, detail="Название группы не может быть пустым")
@@ -95,8 +69,8 @@ async def create_group(
     )
     
     db.add(new_group)
-    db.commit()
-    db.refresh(new_group)
+    await db.commit()
+    await db.refresh(new_group)
 
     group_response = {
         "id": new_group.id,
@@ -128,9 +102,11 @@ async def add_member(
     group_id: str,
     user_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    group = db.query(Group).filter(Group.id == group_id).first()
+    group = (
+        await db.execute(select(Group).where(Group.id == group_id))
+    ).scalar_one_or_none()
     if not group:
         raise HTTPException(status_code=404, detail="Группа не найдена")
     
@@ -144,8 +120,8 @@ async def add_member(
     
     members.append(user_id)
     group.members = members
-    db.commit()
-    db.refresh(group)
+    await db.commit()
+    await db.refresh(group)
     
     group_response = {
         "id": group.id,
@@ -172,12 +148,12 @@ async def add_member(
 async def get_user_groups(
     user_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Доступ запрещен")
     
-    all_groups = db.query(Group).all()
+    all_groups = (await db.execute(select(Group))).scalars().all()
     groups = []
     for g in all_groups:
         members = parse_members(g.members)
@@ -200,9 +176,11 @@ async def get_user_groups(
 async def get_group(
     group_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    group = db.query(Group).filter(Group.id == group_id).first()
+    group = (
+        await db.execute(select(Group).where(Group.id == group_id))
+    ).scalar_one_or_none()
     if not group:
         raise HTTPException(status_code=404, detail="Группа не найдена")
     
@@ -220,21 +198,21 @@ async def get_group(
     }
 
 
-# ===== УДАЛЕНИЕ ГРУППЫ =====
 @router.delete("/{group_id}")
 async def delete_group(
     group_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Удалить группу (только создатель)"""
     
     print(f"🗑️ Попытка удаления группы: {group_id}, пользователь: {current_user.id}")
     
-    group = db.query(Group).filter(Group.id == group_id).first()
+    group = (
+        await db.execute(select(Group).where(Group.id == group_id))
+    ).scalar_one_or_none()
     if not group:
         print(f"❌ Группа {group_id} не найдена в БД")
-        # ✅ Возвращаем успех, чтобы клиент обновил состояние
         return {"message": "Группа уже была удалена", "group_id": group_id, "already_deleted": True}
     
     print(f"📋 Найдена группа: {group.id}, создатель: {group.creator_id}")
@@ -247,8 +225,8 @@ async def delete_group(
         group_name = group.name
         members = parse_members(group.members)
         
-        db.delete(group)
-        db.commit()
+        await db.delete(group)
+        await db.commit()
         
         print(f"✅ Группа {group_name} ({group_id}) удалена")
         
@@ -268,22 +246,22 @@ async def delete_group(
         
     except Exception as e:
         print(f"❌ Ошибка при удалении группы: {e}")
-        db.rollback()
+        await db.rollback()
         raise HTTPException(status_code=500, detail=f"Ошибка при удалении группы: {str(e)}")
 
 
-# ===== ВЫХОД ИЗ ГРУППЫ =====
 @router.delete("/{group_id}/remove-member")
 async def remove_member(
     group_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Выйти из группы (участник)"""
     
-    group = db.query(Group).filter(Group.id == group_id).first()
+    group = (
+        await db.execute(select(Group).where(Group.id == group_id))
+    ).scalar_one_or_none()
     if not group:
-        # ✅ Если группы нет, возвращаем успех
         return {"message": "Группа уже была удалена", "group_id": group_id, "already_deleted": True}
     
     members = parse_members(group.members)
@@ -296,7 +274,7 @@ async def remove_member(
     
     members.remove(current_user.id)
     group.members = members
-    db.commit()
-    db.refresh(group)
+    await db.commit()
+    await db.refresh(group)
     
     return {"message": "Вы вышли из группы", "members": members}

@@ -2,3 +2,13 @@ node_modules/
 .env
 .venv/
 dist/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+uploads/*
+!uploads/.gitkeep
+certbot/
+.docker/generated/

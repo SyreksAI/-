@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { get, put } from '../utils/api';
+import { invalidatePublicSettingsCache } from '../utils/studyData';
+import { useAuth } from '../context/AuthProvider';
 
 function AdminSettings({ settings, setSettings }) {
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const [previewAvatar, setPreviewAvatar] = useState(null);
   const [activeTab, setActiveTab] = useState('general');
   const [saveMessage, setSaveMessage] = useState('');
@@ -60,13 +63,6 @@ function AdminSettings({ settings, setSettings }) {
     setSaveMessage('');
     
     try {
-      const currentUser = JSON.parse(localStorage.getItem('currentUser'));
-      if (!currentUser) {
-        alert('Пожалуйста, войдите в аккаунт');
-        setSaving(false);
-        return;
-      }
-
       // Подготавливаем настройки для отправки
       const settingsToSave = {
         siteName: settings.siteName,
@@ -85,9 +81,8 @@ function AdminSettings({ settings, setSettings }) {
         systemNotifications: Boolean(settings.systemNotifications !== false)
       };
 
-      await put('/api/settings/', settingsToSave, {
-        'X-User-ID': String(currentUser.id)
-      });
+      await put('/api/settings/', settingsToSave);
+      invalidatePublicSettingsCache();
 
       setSaveMessage('✅ Настройки успешно сохранены!');
       setTimeout(() => setSaveMessage(''), 3000);
@@ -101,9 +96,9 @@ function AdminSettings({ settings, setSettings }) {
   };
 
   // ===== ВЫХОД ИЗ АДМИНКИ =====
-  const handleAdminLogout = () => {
+  const handleAdminLogout = async () => {
     if (window.confirm('Вы уверены, что хотите выйти из админ-панели?')) {
-      localStorage.removeItem('adminSession');
+      await logout();
       navigate('/admin/login');
     }
   };

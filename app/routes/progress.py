@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy.sql import func
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional
 from app.database import get_db
@@ -17,13 +17,17 @@ router = APIRouter()
 async def toggle_topic_progress(
     topic_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Отметить/снять отметку изучения темы"""
-    progress = db.query(UserProgress).filter(
-        UserProgress.user_id == current_user.id,
-        UserProgress.topic_id == topic_id
-    ).first()
+    progress = (
+        await db.execute(
+            select(UserProgress).where(
+                UserProgress.user_id == current_user.id,
+                UserProgress.topic_id == topic_id
+            )
+        )
+    ).scalar_one_or_none()
 
     if progress:
         progress.is_completed = not progress.is_completed
@@ -40,20 +44,23 @@ async def toggle_topic_progress(
         )
         db.add(progress)
 
-    db.commit()
-    db.refresh(progress)
+    await db.commit()
+    await db.refresh(progress)
 
-    # Обновляем прогресс пользователя
-    total_topics = db.query(StudyTopic).count()
-    completed_topics = db.query(UserProgress).filter(
-        UserProgress.user_id == current_user.id,
-        UserProgress.is_completed == True,
-        UserProgress.topic_id.isnot(None)
-    ).count()
+    total_topics = (await db.execute(select(func.count()).select_from(StudyTopic))).scalar()
+    completed_topics = (
+        await db.execute(
+            select(func.count()).select_from(UserProgress).where(
+                UserProgress.user_id == current_user.id,
+                UserProgress.is_completed == True,
+                UserProgress.topic_id.isnot(None)
+            )
+        )
+    ).scalar()
     
     current_user.progress = int((completed_topics / total_topics) * 100) if total_topics > 0 else 0
-    db.commit()
-    db.refresh(current_user)
+    await db.commit()
+    await db.refresh(current_user)
 
     await invalidate_cache(f"user_profile:{current_user.id}")
 
@@ -64,13 +71,17 @@ async def toggle_topic_progress(
 async def toggle_subtopic_progress(
     subtopic_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Отметить/снять отметку изучения подтемы"""
-    progress = db.query(UserProgress).filter(
-        UserProgress.user_id == current_user.id,
-        UserProgress.subtopic_id == subtopic_id
-    ).first()
+    progress = (
+        await db.execute(
+            select(UserProgress).where(
+                UserProgress.user_id == current_user.id,
+                UserProgress.subtopic_id == subtopic_id
+            )
+        )
+    ).scalar_one_or_none()
 
     if progress:
         progress.is_completed = not progress.is_completed
@@ -87,8 +98,8 @@ async def toggle_subtopic_progress(
         )
         db.add(progress)
 
-    db.commit()
-    db.refresh(progress)
+    await db.commit()
+    await db.refresh(progress)
 
     await invalidate_cache(f"user_profile:{current_user.id}")
 
@@ -98,12 +109,14 @@ async def toggle_subtopic_progress(
 @router.get("/my-progress")
 async def get_my_progress(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Получить прогресс пользователя"""
-    progress = db.query(UserProgress).filter(
-        UserProgress.user_id == current_user.id
-    ).all()
+    progress = (
+        await db.execute(
+            select(UserProgress).where(UserProgress.user_id == current_user.id)
+        )
+    ).scalars().all()
 
     result = {
         "total": len(progress),
@@ -114,14 +127,18 @@ async def get_my_progress(
 
     for p in progress:
         if p.topic_id:
-            topic = db.query(StudyTopic).filter(StudyTopic.id == p.topic_id).first()
+            topic = (
+                await db.execute(select(StudyTopic).where(StudyTopic.id == p.topic_id))
+            ).scalar_one_or_none()
             result["topics"].append({
                 "id": topic.id if topic else None,
                 "title": topic.title if topic else None,
                 "completed": p.is_completed
             })
         if p.subtopic_id:
-            subtopic = db.query(StudySubtopic).filter(StudySubtopic.id == p.subtopic_id).first()
+            subtopic = (
+                await db.execute(select(StudySubtopic).where(StudySubtopic.id == p.subtopic_id))
+            ).scalar_one_or_none()
             result["subtopics"].append({
                 "id": subtopic.id if subtopic else None,
                 "title": subtopic.title if subtopic else None,
@@ -142,22 +159,24 @@ class BookmarkCreate(BaseModel):
 async def add_bookmark(
     bookmark: BookmarkCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Добавить в избранное"""
     if not bookmark.topic_id and not bookmark.subtopic_id:
         raise HTTPException(status_code=400, detail="Укажите topic_id или subtopic_id")
 
-    # Проверяем, что контент существует
     if bookmark.topic_id:
-        content = db.query(StudyTopic).filter(StudyTopic.id == bookmark.topic_id).first()
+        content = (
+            await db.execute(select(StudyTopic).where(StudyTopic.id == bookmark.topic_id))
+        ).scalar_one_or_none()
     else:
-        content = db.query(StudySubtopic).filter(StudySubtopic.id == bookmark.subtopic_id).first()
+        content = (
+            await db.execute(select(StudySubtopic).where(StudySubtopic.id == bookmark.subtopic_id))
+        ).scalar_one_or_none()
 
     if not content:
         raise HTTPException(status_code=404, detail="Контент не найден")
 
-    # Добавляем в избранное
     bookmarks = current_user.bookmarks or []
     new_bookmark = {"topic_id": bookmark.topic_id, "subtopic_id": bookmark.subtopic_id}
     if new_bookmark in bookmarks:
@@ -165,7 +184,7 @@ async def add_bookmark(
 
     bookmarks.append(new_bookmark)
     current_user.bookmarks = bookmarks
-    db.commit()
+    await db.commit()
 
     return {"message": "Добавлено в избранное"}
 
@@ -174,7 +193,7 @@ async def add_bookmark(
 async def remove_bookmark(
     bookmark: BookmarkCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Удалить из избранного"""
     bookmarks = current_user.bookmarks or []
@@ -183,7 +202,7 @@ async def remove_bookmark(
     if to_remove in bookmarks:
         bookmarks.remove(to_remove)
         current_user.bookmarks = bookmarks
-        db.commit()
+        await db.commit()
         return {"message": "Удалено из избранного"}
     
     return {"message": "Не найдено в избранном"}
@@ -192,7 +211,7 @@ async def remove_bookmark(
 @router.get("/bookmarks")
 async def get_bookmarks(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Получить все избранные темы"""
     bookmarks = current_user.bookmarks or []
@@ -200,7 +219,9 @@ async def get_bookmarks(
 
     for b in bookmarks:
         if b.get("topic_id"):
-            topic = db.query(StudyTopic).filter(StudyTopic.id == b["topic_id"]).first()
+            topic = (
+                await db.execute(select(StudyTopic).where(StudyTopic.id == b["topic_id"]))
+            ).scalar_one_or_none()
             if topic:
                 result.append({
                     "type": "topic",
@@ -209,7 +230,9 @@ async def get_bookmarks(
                     "description": topic.description
                 })
         if b.get("subtopic_id"):
-            subtopic = db.query(StudySubtopic).filter(StudySubtopic.id == b["subtopic_id"]).first()
+            subtopic = (
+                await db.execute(select(StudySubtopic).where(StudySubtopic.id == b["subtopic_id"]))
+            ).scalar_one_or_none()
             if subtopic:
                 result.append({
                     "type": "subtopic",
@@ -227,27 +250,29 @@ async def get_bookmarks(
 @router.get("/recommendations")
 async def get_recommendations(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     limit: int = 5
 ):
     """Рекомендации тем на основе прогресса"""
-    # Получаем изученные темы
-    completed_topic_ids = db.query(UserProgress.topic_id).filter(
-        UserProgress.user_id == current_user.id,
-        UserProgress.is_completed == True,
-        UserProgress.topic_id.isnot(None)
+    completed_topic_ids = (
+        await db.execute(
+            select(UserProgress.topic_id).where(
+                UserProgress.user_id == current_user.id,
+                UserProgress.is_completed == True,
+                UserProgress.topic_id.isnot(None)
+            )
+        )
     ).all()
     completed_ids = [c[0] for c in completed_topic_ids]
 
-    # Получаем все технологии
-    technologies = db.query(Technology).all()
+    technologies = (await db.execute(select(Technology))).scalars().all()
     recommendations = []
 
     for tech in technologies:
-        topics = db.query(StudyTopic).filter(
-            StudyTopic.technology_id == tech.id,
-            StudyTopic.id.notin(completed_ids) if completed_ids else True
-        ).all()
+        stmt = select(StudyTopic).where(StudyTopic.technology_id == tech.id)
+        if completed_ids:
+            stmt = stmt.where(StudyTopic.id.notin(completed_ids))
+        topics = (await db.execute(stmt)).scalars().all()
         
         for topic in topics[:limit]:
             recommendations.append({
@@ -258,5 +283,4 @@ async def get_recommendations(
                 "description": topic.description[:200] + "..." if topic.description else ""
             })
 
-    # Возвращаем первые `limit` рекомендаций
     return recommendations[:limit]

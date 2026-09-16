@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import CopyrightNotice from '../components/CopyrightNotice';
+import { getPasswordValidationError, PASSWORD_HINT } from '../utils/passwordValidation';
+import PasswordInput from '../components/PasswordInput';
 
 function ResetPassword() {
   const navigate = useNavigate();
@@ -23,8 +26,9 @@ function ResetPassword() {
     setMessage('');
     setError('');
 
-    if (newPassword.length < 6) {
-      setError('❌ Пароль должен содержать минимум 6 символов');
+    const passwordError = getPasswordValidationError(newPassword);
+    if (passwordError) {
+      setError(`❌ ${passwordError}`);
       return;
     }
 
@@ -75,6 +79,7 @@ function ResetPassword() {
           <div className="auth-footer">
             <Link to="/login">Вернуться на страницу входа</Link>
           </div>
+          <CopyrightNotice />
         </div>
       </div>
     );
@@ -85,7 +90,7 @@ function ResetPassword() {
       <div className="auth-container">
         <div className="auth-header">
           <div className="auth-logo">
-            <img src="/logo.png" alt="ДубльПар.рф" className="auth-logo-img" />
+            <img src="/logo.png" alt="дубльпар.online" className="auth-logo-img" />
           </div>
           <h1>Сброс пароля</h1>
           <p>Введите новый пароль</p>
@@ -94,22 +99,29 @@ function ResetPassword() {
         {message && <div className="auth-success">{message}</div>}
         {error && <div className="auth-error">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="auth-form">
+        <form onSubmit={handleSubmit} className="auth-form" autoComplete="on">
           <div className="form-group">
-            <label>Новый пароль</label>
-            <input
-              type="password"
-              placeholder="Минимум 6 символов"
+            <label htmlFor="reset-password">Новый пароль</label>
+            <PasswordInput
+              id="reset-password"
+              name="new-password"
+              autoComplete="new-password"
+              placeholder="Мин. 8 символов: Aa1!"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               required
             />
+            <small style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
+              {PASSWORD_HINT}
+            </small>
           </div>
 
           <div className="form-group">
-            <label>Подтвердите пароль</label>
-            <input
-              type="password"
+            <label htmlFor="reset-password-confirm">Подтвердите пароль</label>
+            <PasswordInput
+              id="reset-password-confirm"
+              name="confirm-password"
+              autoComplete="new-password"
               placeholder="Повторите пароль"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
@@ -130,6 +142,8 @@ function ResetPassword() {
         <div className="auth-footer">
           <p>Вспомнили пароль? <Link to="/login">Войти</Link></p>
         </div>
+
+        <CopyrightNotice />
       </div>
     </div>
   );

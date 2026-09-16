@@ -1,6 +1,8 @@
 # app/routes/comments.py (добавлен Redis)
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import Optional
 
@@ -8,6 +10,15 @@ from app.database import get_db
 from app.models import Comment, User, StudyTopic, StudySubtopic
 from app.dependencies import get_current_user
 from app.redis_client import cache, invalidate_cache
+
+
+async def _invalidate_comment_cache(topic_id: int | None = None, subtopic_id: int | None = None) -> None:
+    if topic_id is not None:
+        await invalidate_cache(f"comments_topic:*topic_id={topic_id}*")
+        await invalidate_cache(f"comments_topic:{topic_id}*")
+    if subtopic_id is not None:
+        await invalidate_cache(f"comments_subtopic:*subtopic_id={subtopic_id}*")
+        await invalidate_cache(f"comments_subtopic:{subtopic_id}*")
 
 router = APIRouter()
 
@@ -34,18 +45,22 @@ class CommentResponse(BaseModel):
 async def create_comment(
     comment: CommentCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     if not comment.topic_id and not comment.subtopic_id:
         raise HTTPException(status_code=400, detail="Укажите topic_id или subtopic_id")
     
     if comment.topic_id:
-        topic = db.query(StudyTopic).filter(StudyTopic.id == comment.topic_id).first()
+        topic = (
+            await db.execute(select(StudyTopic).where(StudyTopic.id == comment.topic_id))
+        ).scalar_one_or_none()
         if not topic:
             raise HTTPException(status_code=404, detail="Тема не найдена")
     
     if comment.subtopic_id:
-        subtopic = db.query(StudySubtopic).filter(StudySubtopic.id == comment.subtopic_id).first()
+        subtopic = (
+            await db.execute(select(StudySubtopic).where(StudySubtopic.id == comment.subtopic_id))
+        ).scalar_one_or_none()
         if not subtopic:
             raise HTTPException(status_code=404, detail="Подтема не найдена")
     
@@ -57,14 +72,10 @@ async def create_comment(
         parent_id=comment.parent_id
     )
     db.add(new_comment)
-    db.commit()
-    db.refresh(new_comment)
+    await db.commit()
+    await db.refresh(new_comment)
     
-    # ✅ Очищаем кэш комментариев
-    if comment.topic_id:
-        await invalidate_cache(f"comments_topic:{comment.topic_id}*")
-    if comment.subtopic_id:
-        await invalidate_cache(f"comments_subtopic:{comment.subtopic_id}*")
+    await _invalidate_comment_cache(comment.topic_id, comment.subtopic_id)
     
     return {
         "id": new_comment.id,
@@ -85,20 +96,27 @@ async def create_comment(
 
 
 @router.get("/topic/{topic_id}")
-@cache(ttl=120, key_prefix="comments_topic")
+@cache(ttl=60, key_prefix="comments_topic")
 async def get_topic_comments(
     topic_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     skip: int = 0,
     limit: int = 50
 ):
-    comments = db.query(Comment).options(
-        joinedload(Comment.author)
-    ).filter(
-        Comment.topic_id == topic_id,
-        Comment.is_active == True,
-        Comment.parent_id == None
-    ).order_by(Comment.created_at.desc()).offset(skip).limit(limit).all()
+    comments = (
+        await db.execute(
+            select(Comment)
+            .options(selectinload(Comment.author))
+            .where(
+                Comment.topic_id == topic_id,
+                Comment.is_active == True,
+                Comment.parent_id == None
+            )
+            .order_by(Comment.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+    ).scalars().all()
     
     result = []
     for comment in comments:
@@ -123,20 +141,27 @@ async def get_topic_comments(
 
 
 @router.get("/subtopic/{subtopic_id}")
-@cache(ttl=120, key_prefix="comments_subtopic")
+@cache(ttl=60, key_prefix="comments_subtopic")
 async def get_subtopic_comments(
     subtopic_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     skip: int = 0,
     limit: int = 50
 ):
-    comments = db.query(Comment).options(
-        joinedload(Comment.author)
-    ).filter(
-        Comment.subtopic_id == subtopic_id,
-        Comment.is_active == True,
-        Comment.parent_id == None
-    ).order_by(Comment.created_at.desc()).offset(skip).limit(limit).all()
+    comments = (
+        await db.execute(
+            select(Comment)
+            .options(selectinload(Comment.author))
+            .where(
+                Comment.subtopic_id == subtopic_id,
+                Comment.is_active == True,
+                Comment.parent_id == None
+            )
+            .order_by(Comment.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+    ).scalars().all()
     
     result = []
     for comment in comments:

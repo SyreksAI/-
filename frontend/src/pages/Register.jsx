@@ -1,14 +1,23 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { authAPI } from '../utils/api';
+import { fetchPublicSettings } from '../utils/studyData';
+import { useAuth } from '../context/AuthProvider';
+import CopyrightNotice from '../components/CopyrightNotice';
+import { LEGAL_DOCS_VERSION } from '../utils/legalInfo';
 import { Turnstile } from '@marsidev/react-turnstile';
+import { TURNSTILE_SITE_KEY } from '../config/env';
+import { getPasswordValidationError, PASSWORD_HINT } from '../utils/passwordValidation';
+import PasswordInput from '../components/PasswordInput';
+import YandexLoginButton from '../components/YandexLoginButton';
 
 function Register() {
   const navigate = useNavigate();
+  const { applyAuthResponse } = useAuth();
   const [turnstileToken, setTurnstileToken] = useState(null);
-  const turnstileContainerRef = useRef(null);
-  const widgetIdRef = useRef(null);
-  
+  const [turnstileKey, setTurnstileKey] = useState(0);
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState(TURNSTILE_SITE_KEY);
+  const [turnstileRequired, setTurnstileRequired] = useState(Boolean(TURNSTILE_SITE_KEY));
   const [formData, setFormData] = useState({
     name: '',
     username: '',
@@ -18,62 +27,40 @@ function Register() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [yandexOAuthEnabled, setYandexOAuthEnabled] = useState(false);
+  const [agreements, setAgreements] = useState({
+    privacyPolicy: false,
+    dataProcessing: false,
+    publicOffer: false,
+  });
 
-  // ✅ ЗАГРУЗКА TURNSTILE СКРИПТА
+  const allAgreementsAccepted = agreements.privacyPolicy && agreements.dataProcessing && agreements.publicOffer;
+
   useEffect(() => {
-    // Загружаем скрипт Cloudflare Turnstile
-    const script = document.createElement('script');
-    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
-    script.async = true;
-    script.defer = true;
-    document.head.appendChild(script);
-
-    // Ждём, пока API станет доступным
-    const checkTurnstile = setInterval(() => {
-      if (window.turnstile) {
-        clearInterval(checkTurnstile);
-        renderTurnstile();
-      }
-    }, 100);
-
-    // Очистка при размонтировании
-    return () => {
-      clearInterval(checkTurnstile);
-      if (widgetIdRef.current && window.turnstile) {
-        try {
-          window.turnstile.remove(widgetIdRef.current);
-        } catch (e) {}
-      }
-    };
+    fetchPublicSettings()
+      .then((data) => {
+        if (data?.turnstileSiteKey) {
+          setTurnstileSiteKey(data.turnstileSiteKey);
+        }
+        if (typeof data?.turnstileRequired === 'boolean') {
+          setTurnstileRequired(data.turnstileRequired);
+        }
+        if (typeof data?.yandexOAuthEnabled === 'boolean') {
+          setYandexOAuthEnabled(data.yandexOAuthEnabled);
+        }
+      })
+      .catch(() => {
+        // fallback to build-time env
+      });
   }, []);
-
-  const renderTurnstile = () => {
-    if (!turnstileContainerRef.current || !window.turnstile) return;
-
-    // Очищаем контейнер
-    turnstileContainerRef.current.innerHTML = '';
-
-    // Создаём виджет
-    widgetIdRef.current = window.turnstile.render(turnstileContainerRef.current, {
-      sitekey: '0x4AAAAAAEp_ptyyFaa5K-ck',
-      theme: 'light',
-      callback: function(token) {
-        console.log('✅ Turnstile токен получен:', token);
-        setTurnstileToken(token);
-      },
-      'expired-callback': function() {
-        console.log('⏰ Turnstile токен истёк');
-        setTurnstileToken(null);
-      },
-      'error-callback': function() {
-        console.log('❌ Ошибка Turnstile');
-        setTurnstileToken(null);
-      }
-    });
-  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleAgreementChange = (e) => {
+    const { name, checked } = e.target;
+    setAgreements((prev) => ({ ...prev, [name]: checked }));
   };
 
   const handleSubmit = async (e) => {
@@ -108,8 +95,9 @@ function Register() {
       return;
     }
 
-    if (password.length < 6) {
-      setError('❌ Пароль должен содержать минимум 6 символов');
+    const passwordError = getPasswordValidationError(password);
+    if (passwordError) {
+      setError(`❌ ${passwordError}`);
       setLoading(false);
       return;
     }
@@ -120,20 +108,29 @@ function Register() {
       return;
     }
 
-    // ✅ ПРОВЕРКА Turnstile
-    if (!turnstileToken) {
-      setError('❌ Подтвердите, что вы не робот');
+    if (!agreements.privacyPolicy) {
+      setError('❌ Необходимо ознакомиться с политикой обработки персональных данных');
       setLoading(false);
       return;
     }
 
-    console.log('📤 Sending registration data:', { 
-      name, 
-      username, 
-      email, 
-      password,
-      recaptcha_token: turnstileToken 
-    });
+    if (!agreements.dataProcessing) {
+      setError('❌ Необходимо дать согласие на обработку персональных данных');
+      setLoading(false);
+      return;
+    }
+
+    if (!agreements.publicOffer) {
+      setError('❌ Необходимо принять условия публичной оферты');
+      setLoading(false);
+      return;
+    }
+
+    if (turnstileRequired && !turnstileToken) {
+      setError('❌ Подтвердите, что вы не робот');
+      setLoading(false);
+      return;
+    }
 
     try {
       const response = await authAPI.register({ 
@@ -141,26 +138,23 @@ function Register() {
         username, 
         email, 
         password,
-        recaptcha_token: turnstileToken
+        recaptcha_token: turnstileToken,
+        accept_privacy_policy: agreements.privacyPolicy,
+        accept_data_processing: agreements.dataProcessing,
+        accept_public_offer: agreements.publicOffer,
+        legal_docs_version: LEGAL_DOCS_VERSION,
       });
       
-      console.log('📥 Registration response:', response);
-      
-      localStorage.setItem('token', response.access_token);
-      localStorage.setItem('currentUser', JSON.stringify(response.user));
-      
+      applyAuthResponse(response);
+
       setLoading(false);
       navigate('/');
-      window.location.reload();
     } catch (err) {
-      console.error('❌ Registration error:', err);
+      console.error('Registration error:', err);
       setError(err.message || '❌ Ошибка регистрации. Попробуйте другой username или email.');
       setLoading(false);
-      // Сбрасываем Turnstile
       setTurnstileToken(null);
-      if (window.turnstile && widgetIdRef.current) {
-        window.turnstile.reset(widgetIdRef.current);
-      }
+      setTurnstileKey((key) => key + 1);
     }
   };
 
@@ -169,7 +163,7 @@ function Register() {
       <div className="auth-container">
         <div className="auth-header">
           <div className="auth-logo">
-            <img src="/logo.png" alt="ДубльПар.рф" className="auth-logo-img" />
+            <img src="/logo.png" alt="дубльпар.online" className="auth-logo-img" />
           </div>
           <h1>Регистрация</h1>
           <p>Создайте аккаунт для доступа к материалам</p>
@@ -177,12 +171,23 @@ function Register() {
 
         {error && <div className="auth-error">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="auth-form">
+        {yandexOAuthEnabled && (
+          <>
+            <YandexLoginButton next="/" label="Продолжить с Яндекс ID" />
+            <div className="auth-divider">
+              <span>или зарегистрируйтесь по email</span>
+            </div>
+          </>
+        )}
+
+        <form onSubmit={handleSubmit} className="auth-form" autoComplete="on">
           <div className="form-group">
-            <label>Ваше имя *</label>
+            <label htmlFor="register-name">Ваше имя *</label>
             <input
+              id="register-name"
               type="text"
               name="name"
+              autoComplete="name"
               placeholder="Введите ваше имя"
               value={formData.name}
               onChange={handleChange}
@@ -190,24 +195,28 @@ function Register() {
             />
           </div>
           <div className="form-group">
-            <label>Имя пользователя (@username) *</label>
+            <label htmlFor="register-username">Имя пользователя (@username) *</label>
             <input
+              id="register-username"
               type="text"
               name="username"
+              autoComplete="username"
               placeholder="Например: julia"
               value={formData.username}
               onChange={handleChange}
               required
             />
-            <small style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
+            <small className="auth-form__hint">
               Только буквы, цифры и _ (минимум 3 символа). Будет отображаться в чате как @username
             </small>
           </div>
           <div className="form-group">
-            <label>Email *</label>
+            <label htmlFor="register-email">Email *</label>
             <input
+              id="register-email"
               type="email"
               name="email"
+              autoComplete="email"
               placeholder="Введите email"
               value={formData.email}
               onChange={handleChange}
@@ -215,21 +224,26 @@ function Register() {
             />
           </div>
           <div className="form-group">
-            <label>Пароль *</label>
-            <input
-              type="password"
+            <label htmlFor="register-password">Пароль *</label>
+            <PasswordInput
+              id="register-password"
               name="password"
-              placeholder="Минимум 6 символов"
+              autoComplete="new-password"
+              placeholder="Мин. 8 символов: Aa1!"
               value={formData.password}
               onChange={handleChange}
               required
             />
+            <small className="auth-form__hint">
+              {PASSWORD_HINT}
+            </small>
           </div>
           <div className="form-group">
-            <label>Подтвердите пароль *</label>
-            <input
-              type="password"
+            <label htmlFor="register-password-confirm">Подтвердите пароль *</label>
+            <PasswordInput
+              id="register-password-confirm"
               name="confirmPassword"
+              autoComplete="new-password"
               placeholder="Повторите пароль"
               value={formData.confirmPassword}
               onChange={handleChange}
@@ -237,12 +251,78 @@ function Register() {
             />
           </div>
 
-          {/* ✅ TURNSTILE (официальный скрипт) */}
-          <div className="form-group turnstile-wrapper">
-            <div ref={turnstileContainerRef}></div>
+          {/* Согласия */}
+          <div className="auth-consent-group">
+            <label className="auth-consent-item">
+              <input
+                type="checkbox"
+                name="privacyPolicy"
+                checked={agreements.privacyPolicy}
+                onChange={handleAgreementChange}
+              />
+              <span>
+                Ознакомлен(а) с{' '}
+                <Link to="/privacy" target="_blank" rel="noopener noreferrer">
+                  Политикой обработки персональных данных
+                </Link>
+              </span>
+            </label>
+
+            <label className="auth-consent-item">
+              <input
+                type="checkbox"
+                name="dataProcessing"
+                checked={agreements.dataProcessing}
+                onChange={handleAgreementChange}
+              />
+              <span>
+                Даю{' '}
+                <Link to="/privacy#consent" target="_blank" rel="noopener noreferrer">
+                  согласие на обработку персональных данных
+                </Link>
+              </span>
+            </label>
+
+            <label className="auth-consent-item">
+              <input
+                type="checkbox"
+                name="publicOffer"
+                checked={agreements.publicOffer}
+                onChange={handleAgreementChange}
+              />
+              <span>
+                Принимаю условия{' '}
+                <Link to="/terms" target="_blank" rel="noopener noreferrer">
+                  публичной оферты
+                </Link>
+              </span>
+            </label>
           </div>
 
-          <button type="submit" className="btn-submit" disabled={loading}>
+          {turnstileRequired && !turnstileSiteKey && (
+            <div className="auth-error">
+              Captcha включена на сервере, но публичный ключ не настроен. Добавьте TURNSTILE_SITE_KEY в .env.
+            </div>
+          )}
+
+          {turnstileSiteKey && (
+            <div className="form-group turnstile-wrapper">
+              <Turnstile
+                key={turnstileKey}
+                siteKey={turnstileSiteKey}
+                onSuccess={setTurnstileToken}
+                onExpire={() => setTurnstileToken(null)}
+                onError={() => setTurnstileToken(null)}
+                options={{ theme: 'light', refreshExpired: 'auto' }}
+              />
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="btn-submit"
+            disabled={loading || !allAgreementsAccepted || (turnstileRequired && !turnstileSiteKey)}
+          >
             {loading ? (
               <i className="fas fa-spinner fa-spin"></i>
             ) : (
@@ -266,9 +346,7 @@ function Register() {
           <Link to="/about">О проекте</Link>
         </div>
 
-        <div className="auth-copyright">
-          © 2026 ДубльПар.рф. Все права защищены.
-        </div>
+        <CopyrightNotice />
 
         <div className="auth-security">
           <i className="fas fa-lock"></i>
