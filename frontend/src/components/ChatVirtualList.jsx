@@ -82,7 +82,7 @@ function ChatMessageRow({
             <Link
               to={`/profile/${msg.userId}`}
               className="chat-message-sender"
-              style={{ textDecoration: 'none', color: '#7c3aed', fontWeight: '600' }}
+              style={{ textDecoration: 'none', color: '#14b8a6', fontWeight: '600' }}
             >
               {msg.username || msg.name}
             </Link>

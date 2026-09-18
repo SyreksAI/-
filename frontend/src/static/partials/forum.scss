@@ -39,7 +39,7 @@
 }
 
 .chat-sidebar-header .chat-back {
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 1.1rem;
   text-decoration: none;
   padding: 6px 10px;
@@ -109,7 +109,7 @@
 
 .chat-sidebar-search input:focus {
   background: #ffffff;
-  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.15);
 }
 
 .chat-sidebar-list {
@@ -158,7 +158,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 1.2rem;
   flex-shrink: 0;
   position: relative;
@@ -166,7 +166,7 @@
 
 .chat-contact-avatar i {
   font-size: 1.3rem;
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .contact-online-dot {
@@ -209,7 +209,7 @@
 }
 
 .chat-contact-unread {
-  background: #7c3aed;
+  background: #14b8a6;
   color: white;
   font-size: 0.65rem;
   font-weight: 600;
@@ -255,7 +255,7 @@
   height: 44px;
   border-radius: 50%;
   border: none;
-  background: #7c3aed;
+  background: #14b8a6;
   color: white;
   font-size: 0.9rem;
   cursor: pointer;
@@ -269,9 +269,9 @@
 }
 
 .btn-add-user-chat:hover {
-  background: #6d28d9;
+  background: #0d9488;
   transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 4px 12px rgba(20, 184, 166, 0.3);
 }
 
 /* ===== ФУТЕР ===== */
@@ -311,7 +311,7 @@
 }
 
 .username-link:hover .username {
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .logout-btn {
@@ -376,7 +376,7 @@
 .chat-header-avatar {
   width: 36px;
   height: 36px;
-  background: #7c3aed;
+  background: #14b8a6;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -553,7 +553,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 1.1rem;
   flex-shrink: 0;
   margin-top: 2px; /* небольшой отступ сверху */
@@ -593,7 +593,7 @@
 }
 
 .chat-message.own .chat-message-bubble {
-  background: #7c3aed;
+  background: #14b8a6;
   border-top-right-radius: 4px;
   border-top-left-radius: 16px;
 }
@@ -615,7 +615,7 @@
 .chat-message-sender {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #7c3aed;
+  color: #14b8a6;
   margin-bottom: 2px;
   display: block;
 }
@@ -724,7 +724,7 @@
 }
 
 .chat-attach-btn:hover {
-  color: #7c3aed;
+  color: #14b8a6;
   background: #f1f5f9;
 }
 
@@ -743,7 +743,7 @@
 
 .chat-input:focus {
   background: #ffffff;
-  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.1);
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.1);
 }
 
 .chat-input::placeholder {
@@ -755,7 +755,7 @@
   height: 40px;
   border-radius: 50%;
   border: none;
-  background: #7c3aed;
+  background: #14b8a6;
   color: white;
   font-size: 0.9rem;
   cursor: pointer;
@@ -767,9 +767,9 @@
 }
 
 .chat-send-btn:hover:not(:disabled) {
-  background: #6d28d9;
+  background: #0d9488;
   transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 4px 12px rgba(20, 184, 166, 0.3);
 }
 
 .chat-send-btn:disabled {
@@ -785,7 +785,7 @@
 }
 
 .chat-login-hint a {
-  color: #7c3aed;
+  color: #14b8a6;
   font-weight: 600;
   text-decoration: none;
 }
@@ -868,7 +868,7 @@
 }
 
 .modal-header h3 i {
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .modal-close {
@@ -940,7 +940,7 @@
 
 .modal-search input:focus {
   background: #ffffff;
-  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.15);
 }
 
 .modal-search input::placeholder {
@@ -984,7 +984,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 1.1rem;
   flex-shrink: 0;
 }
@@ -1023,7 +1023,7 @@
   padding: 6px 16px;
   border: none;
   border-radius: 8px;
-  background: #7c3aed;
+  background: #14b8a6;
   color: white;
   font-weight: 600;
   font-size: 0.8rem;
@@ -1037,7 +1037,7 @@
 }
 
 .btn-add-user:hover {
-  background: #6d28d9;
+  background: #0d9488;
   transform: scale(1.02);
 }
 
@@ -1064,7 +1064,7 @@
   min-width: 44px;
   border-radius: 50%;
   border: none;
-  background: #7c3aed;
+  background: #14b8a6;
   color: white;
   font-size: 0.9rem;
   cursor: pointer;
@@ -1078,9 +1078,9 @@
 }
 
 .btn-add-user-chat:hover {
-  background: #6d28d9;
+  background: #0d9488;
   transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 4px 12px rgba(20, 184, 166, 0.3);
 }
 
 .btn-add-user-chat:active {
@@ -1138,7 +1138,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 1rem;
   flex-shrink: 0;
 }
@@ -1181,12 +1181,12 @@
 }
 
 .search-result-btn.btn-subscribe {
-  background: #7c3aed;
+  background: #14b8a6;
   color: white;
 }
 
 .search-result-btn.btn-subscribe:hover:not(:disabled) {
-  background: #6d28d9;
+  background: #0d9488;
   transform: scale(1.02);
 }
 
@@ -1354,7 +1354,7 @@
 
 
 .forum-badge {
-  background: #7c3aed;
+  background: #14b8a6;
   color: white;
   padding: 2px 10px;
   border-radius: 20px;
@@ -1399,7 +1399,7 @@
 }
 
 .notification-btn i {
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 1rem;
 }
 
@@ -1456,7 +1456,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 1.2rem;
   flex-shrink: 0;
 }
@@ -1568,7 +1568,7 @@
 
 .profile-username {
   font-size: 0.9rem;
-  color: #7c3aed;
+  color: #14b8a6;
   font-weight: 600;
   margin: 2px 0;
 }
@@ -1724,12 +1724,12 @@
 }
 
 .btn-allow-notifications {
-  background: #7c3aed;
+  background: #14b8a6;
   color: white;
 }
 
 .btn-allow-notifications:hover {
-  background: #6d28d9;
+  background: #0d9488;
 }
 
 .btn-deny-notifications {
@@ -1808,7 +1808,7 @@
   left: 0;
   right: 0;
   height: 100px;
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.1) 0%, rgba(167, 139, 250, 0.05) 100%);
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.1) 0%, rgba(45, 212, 191, 0.05) 100%);
   z-index: 0;
 }
 
@@ -1828,9 +1828,9 @@
   align-items: center;
   justify-content: center;
   font-size: 4rem;
-  color: #7c3aed;
+  color: #14b8a6;
   border: 4px solid #ffffff;
-  box-shadow: 0 8px 24px rgba(124, 58, 237, 0.15);
+  box-shadow: 0 8px 24px rgba(20, 184, 166, 0.15);
 }
 
 .profile-status-dot {
@@ -1874,8 +1874,8 @@
 }
 
 .profile-role-badge.admin {
-  background: #ede9fe;
-  color: #7c3aed;
+  background: #ccfbf1;
+  color: #14b8a6;
 }
 
 .profile-role-badge.student {
@@ -1895,7 +1895,7 @@
 
 .btn-action-primary {
   padding: 10px 24px;
-  background: #7c3aed;
+  background: #14b8a6;
   color: white;
   border: none;
   border-radius: 12px;
@@ -1909,9 +1909,9 @@
 }
 
 .btn-action-primary:hover {
-  background: #6d28d9;
+  background: #0d9488;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 4px 12px rgba(20, 184, 166, 0.3);
 }
 
 .btn-action-secondary {
@@ -2002,7 +2002,7 @@
 }
 
 .detail-row i {
-  color: #7c3aed;
+  color: #14b8a6;
   width: 20px;
   text-align: center;
   
@@ -2041,8 +2041,8 @@
 }
 
 .tech-tag-modern:hover {
-  background: #ede9fe;
-  color: #7c3aed;
+  background: #ccfbf1;
+  color: #14b8a6;
 }
 
 .tech-tag-modern i {
@@ -2076,21 +2076,21 @@
 
 /* ===== ГРУППЫ В ПОИСКЕ ===== */
 .search-result-avatar.group-avatar {
-  background: #ede9fe;
-  color: #7c3aed;
+  background: #ccfbf1;
+  color: #14b8a6;
 }
 
 .search-result-item .search-result-username i.fa-users {
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .search-result-btn.btn-open-chat {
-  background: #7c3aed;
+  background: #14b8a6;
   color: white;
 }
 
 .search-result-btn.btn-open-chat:hover {
-  background: #6d28d9;
+  background: #0d9488;
   transform: scale(1.02);
 }
 
@@ -2210,14 +2210,14 @@
 
 .file-progress-bar {
   height: 100%;
-  background: #7c3aed;
+  background: #14b8a6;
   border-radius: 2px;
   transition: width 0.3s ease;
 }
 
 .file-progress-text {
   font-size: 0.6rem;
-  color: #7c3aed;
+  color: #14b8a6;
   margin-left: 4px;
   flex-shrink: 0;
 }
@@ -2260,7 +2260,7 @@
 }
 
 .chat-input-wrapper .chat-attach-btn:hover:not(:disabled) {
-  color: #7c3aed;
+  color: #14b8a6;
   transform: scale(1.1);
 }
 
@@ -2289,8 +2289,8 @@
 
   &:hover:not(:disabled),
   &.is-active {
-    color: #7c3aed;
-    background: rgba(124, 58, 237, 0.1);
+    color: #14b8a6;
+    background: rgba(20, 184, 166, 0.1);
     transform: scale(1.06);
   }
 
@@ -2354,7 +2354,7 @@
 }
 
 .chat-input-wrapper .chat-send-btn {
-  background: #7c3aed;
+  background: #14b8a6;
   border: none;
   color: white;
   width: 40px;
@@ -2370,7 +2370,7 @@
 }
 
 .chat-input-wrapper .chat-send-btn:hover:not(:disabled) {
-  background: #6d28d9;
+  background: #0d9488;
   transform: scale(1.05);
 }
 
@@ -2547,7 +2547,7 @@
 
 .message-file i {
   font-size: 1.2rem;
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .message-file .file-link {
@@ -2618,12 +2618,12 @@
 /* ===== СВОИ СООБЩЕНИЯ ===== */
 
 .chat-message.own .message-file-image {
-  border: 2px solid rgba(124, 58, 237, 0.15);
+  border: 2px solid rgba(20, 184, 166, 0.15);
 }
 
 .chat-message.own .message-file {
-  background: rgba(124, 58, 237, 0.08);
-  border-color: rgba(124, 58, 237, 0.2);
+  background: rgba(20, 184, 166, 0.08);
+  border-color: rgba(20, 184, 166, 0.2);
 }
 
 .chat-message.own .message-file .file-link {
@@ -2631,12 +2631,12 @@
 }
 
 .chat-message.own .message-file-audio {
-  background: rgba(124, 58, 237, 0.08);
-  border-color: rgba(124, 58, 237, 0.2);
+  background: rgba(20, 184, 166, 0.08);
+  border-color: rgba(20, 184, 166, 0.2);
 }
 
 .chat-message.own .message-image-overlay {
-  background: linear-gradient(transparent, rgba(124, 58, 237, 0.6));
+  background: linear-gradient(transparent, rgba(20, 184, 166, 0.6));
 }
 
 /* ===== АДАПТИВ ===== */
@@ -2783,7 +2783,7 @@
 
 .message-file i {
   font-size: 1.2rem;
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .message-file .file-link {
@@ -2853,12 +2853,12 @@
 
 /* ===== СВОИ СООБЩЕНИЯ ===== */
 .chat-message.own .message-file-image {
-  border: 2px solid rgba(124, 58, 237, 0.2);
+  border: 2px solid rgba(20, 184, 166, 0.2);
 }
 
 .chat-message.own .message-file {
-  background: rgba(124, 58, 237, 0.08);
-  border-color: rgba(124, 58, 237, 0.2);
+  background: rgba(20, 184, 166, 0.08);
+  border-color: rgba(20, 184, 166, 0.2);
 }
 
 .chat-message.own .message-file .file-link {
@@ -2866,12 +2866,12 @@
 }
 
 .chat-message.own .message-file-audio {
-  background: rgba(124, 58, 237, 0.08);
-  border-color: rgba(124, 58, 237, 0.2);
+  background: rgba(20, 184, 166, 0.08);
+  border-color: rgba(20, 184, 166, 0.2);
 }
 
 .chat-message.own .message-image-overlay {
-  background: linear-gradient(transparent, rgba(124, 58, 237, 0.6));
+  background: linear-gradient(transparent, rgba(20, 184, 166, 0.6));
 }
 
 /* ======================================== */
@@ -2978,7 +2978,7 @@
 
 .file-preview-image:hover {
   transform: scale(1.03);
-  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.15);
+  box-shadow: 0 4px 16px rgba(20, 184, 166, 0.15);
 }
 
 /* Иконка для не-изображений */
@@ -2998,7 +2998,7 @@
 }
 
 .file-preview-icon:hover {
-  border-color: #7c3aed;
+  border-color: #14b8a6;
   background: rgba(241, 245, 249, 0.9);
 }
 
@@ -3026,7 +3026,7 @@
   height: 28px;
   border: none;
   border-radius: 50%;
-  background: #7c3aed;
+  background: #14b8a6;
   color: #ffffff;
   cursor: pointer;
   display: flex;
@@ -3077,7 +3077,7 @@
 
 .file-progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, #7c3aed, #a78bfa);
+  background: linear-gradient(90deg, #14b8a6, #2dd4bf);
   border-radius: 4px;
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -3703,9 +3703,9 @@
 }
 
 .message-menu-btn:hover {
-  color: #7c3aed;
-  border-color: rgba(124, 58, 237, 0.2);
-  box-shadow: 0 2px 12px rgba(124, 58, 237, 0.15);
+  color: #14b8a6;
+  border-color: rgba(20, 184, 166, 0.2);
+  box-shadow: 0 2px 12px rgba(20, 184, 166, 0.15);
 }
 
 /* ===== АДАПТИВ ===== */
@@ -3770,7 +3770,7 @@
 }
 
 .message-context-menu-item:hover {
-  background: rgba(124, 58, 237, 0.06);
+  background: rgba(20, 184, 166, 0.06);
 }
 
 .message-context-menu-item i {
@@ -3828,8 +3828,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  background: rgba(124, 58, 237, 0.08);
-  border-left: 3px solid #7c3aed;
+  background: rgba(20, 184, 166, 0.08);
+  border-left: 3px solid #14b8a6;
   border-radius: 8px 8px 0 0;
   margin: 0 0 4px 0;
   animation: slideDown 0.25s ease;
@@ -3845,14 +3845,14 @@
 }
 
 .edit-message-info i {
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 0.9rem;
 }
 
 .edit-message-label {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #7c3aed;
+  color: #14b8a6;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   flex-shrink: 0;
@@ -3944,8 +3944,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  background: rgba(124, 58, 237, 0.08);
-  border-left: 3px solid #7c3aed;
+  background: rgba(20, 184, 166, 0.08);
+  border-left: 3px solid #14b8a6;
   border-radius: 8px 8px 0 0;
   margin: 0 0 4px 0;
   animation: slideDown 0.25s ease;
@@ -3961,14 +3961,14 @@
 }
 
 .edit-message-info i {
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 0.9rem;
 }
 
 .edit-message-label {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #7c3aed;
+  color: #14b8a6;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   flex-shrink: 0;
@@ -4050,7 +4050,7 @@
   align-items: center;
   gap: 8px;
   font-size: 0.8rem;
-  color: #7c3aed;
+  color: #14b8a6;
   font-weight: 600;
   margin-bottom: 4px;
 }
@@ -4106,9 +4106,9 @@
 }
 
 .share-search input:focus {
-  border-color: #7c3aed;
+  border-color: #14b8a6;
   background: #ffffff;
-  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.08);
+  box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.08);
 }
 
 /* Список контактов */
@@ -4150,12 +4150,12 @@
 }
 
 .share-contact-item.selected {
-  background: #ede9fe;
-  border-color: #7c3aed;
+  background: #ccfbf1;
+  border-color: #14b8a6;
 }
 
 .share-contact-item.selected .share-contact-name {
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .share-contact-info {
@@ -4174,7 +4174,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 1rem;
   flex-shrink: 0;
 }
@@ -4217,8 +4217,8 @@
 }
 
 .share-checkbox.checked {
-  background: #7c3aed;
-  border-color: #7c3aed;
+  background: #14b8a6;
+  border-color: #14b8a6;
 }
 
 .share-checkbox.checked i {
@@ -4370,8 +4370,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  background: rgba(124, 58, 237, 0.08);
-  border-left: 3px solid #7c3aed;
+  background: rgba(20, 184, 166, 0.08);
+  border-left: 3px solid #14b8a6;
   border-radius: 8px 8px 0 0;
   margin: 0 0 4px 0;
   animation: slideDown 0.25s ease;
@@ -4387,14 +4387,14 @@
 }
 
 .edit-message-info i {
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 0.9rem;
 }
 
 .edit-message-label {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #7c3aed;
+  color: #14b8a6;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   flex-shrink: 0;
@@ -4593,13 +4593,13 @@
 
 /* ===== СВОИ СООБЩЕНИЯ (фиолетовый) ===== */
 .chat-message.own .message-reply-quote {
-  background: rgba(124, 58, 237, 0.08);
-  border-left: 3px solid #a78bfa;
-  border-right: 1px solid rgba(124, 58, 237, 0.06);
+  background: rgba(20, 184, 166, 0.08);
+  border-left: 3px solid #2dd4bf;
+  border-right: 1px solid rgba(20, 184, 166, 0.06);
 }
 
 .chat-message.own .reply-quote-sender {
-  color: #a78bfa;
+  color: #2dd4bf;
 }
 
 .chat-message.own .reply-quote-text {
@@ -4607,7 +4607,7 @@
 }
 
 .chat-message.own .message-reply-quote:hover {
-  background: rgba(124, 58, 237, 0.15);
+  background: rgba(20, 184, 166, 0.15);
 }
 
 /* ===== РАЗДЕЛИТЕЛЬ МЕЖДУ ЦИТАТОЙ И ТЕКСТОМ ===== */
@@ -4632,18 +4632,18 @@
 
 @keyframes highlightFade {
   0% {
-    background: rgba(124, 58, 237, 0.2);
-    box-shadow: 0 0 20px rgba(124, 58, 237, 0.1);
+    background: rgba(20, 184, 166, 0.2);
+    box-shadow: 0 0 20px rgba(20, 184, 166, 0.1);
     padding: 4px 0;
   }
   15% {
-    background: rgba(124, 58, 237, 0.3);
-    box-shadow: 0 0 30px rgba(124, 58, 237, 0.15);
+    background: rgba(20, 184, 166, 0.3);
+    box-shadow: 0 0 30px rgba(20, 184, 166, 0.15);
     padding: 4px 0;
   }
   40% {
-    background: rgba(124, 58, 237, 0.15);
-    box-shadow: 0 0 15px rgba(124, 58, 237, 0.05);
+    background: rgba(20, 184, 166, 0.15);
+    box-shadow: 0 0 15px rgba(20, 184, 166, 0.05);
     padding: 4px 0;
   }
   100% {
@@ -4661,18 +4661,18 @@
 
 @keyframes highlightFadeOwn {
   0% {
-    background: rgba(124, 58, 237, 0.25);
-    box-shadow: 0 0 25px rgba(124, 58, 237, 0.15);
+    background: rgba(20, 184, 166, 0.25);
+    box-shadow: 0 0 25px rgba(20, 184, 166, 0.15);
     padding: 4px 0;
   }
   15% {
-    background: rgba(124, 58, 237, 0.4);
-    box-shadow: 0 0 35px rgba(124, 58, 237, 0.2);
+    background: rgba(20, 184, 166, 0.4);
+    box-shadow: 0 0 35px rgba(20, 184, 166, 0.2);
     padding: 4px 0;
   }
   40% {
-    background: rgba(124, 58, 237, 0.2);
-    box-shadow: 0 0 15px rgba(124, 58, 237, 0.05);
+    background: rgba(20, 184, 166, 0.2);
+    box-shadow: 0 0 15px rgba(20, 184, 166, 0.05);
     padding: 4px 0;
   }
   100% {
@@ -4782,7 +4782,7 @@
 }
 
 .forum-share-modal .share-contact-item.selected {
-  background: #ede9fe;
+  background: #ccfbf1;
 }
 
 .forum-share-modal .share-contact-info {
@@ -4800,7 +4800,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 1.2rem;
 }
 
@@ -4832,8 +4832,8 @@
 }
 
 .forum-share-modal .share-checkbox.checked {
-  background: #7c3aed;
-  border-color: #7c3aed;
+  background: #14b8a6;
+  border-color: #14b8a6;
 }
 
 .forum-share-modal .share-checkbox.checked i {
@@ -4888,7 +4888,7 @@
     align-items: center;
     gap: 8px;
     font-size: 0.8rem;
-    color: #7c3aed;
+    color: #14b8a6;
     font-weight: 600;
     margin-bottom: 4px;
 
@@ -4948,7 +4948,7 @@
 
     &.active {
       background: #ffffff;
-      color: #7c3aed;
+      color: #14b8a6;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
     }
 
@@ -4984,9 +4984,9 @@
     transition: 0.3s;
 
     &:focus {
-      border-color: #7c3aed;
+      border-color: #14b8a6;
       background: #ffffff;
-      box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.08);
+      box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.08);
     }
 
     &::placeholder {
@@ -5032,11 +5032,11 @@
     }
 
     &.selected {
-      background: #ede9fe;
-      border-color: #7c3aed;
+      background: #ccfbf1;
+      border-color: #14b8a6;
 
       .share-contact-name {
-        color: #7c3aed;
+        color: #14b8a6;
       }
     }
 
@@ -5098,8 +5098,8 @@
       background: #ffffff;
 
       &.checked {
-        background: #7c3aed;
-        border-color: #7c3aed;
+        background: #14b8a6;
+        border-color: #14b8a6;
 
         i {
           color: white;
@@ -5247,8 +5247,8 @@
 /* ======================================== */
 
 .message-forward-block {
-  background: rgba(124, 58, 237, 0.05);
-  border-left: 3px solid #7c3aed;
+  background: rgba(20, 184, 166, 0.05);
+  border-left: 3px solid #14b8a6;
   border-radius: 8px;
   padding: 8px 12px;
   margin: 4px 0 6px 0;
@@ -5256,7 +5256,7 @@
 
 .chat-message.own .message-forward-block {
   background: rgba(255, 255, 255, 0.08);
-  border-left-color: #a78bfa;
+  border-left-color: #2dd4bf;
 }
 
 .forward-header {
@@ -5264,13 +5264,13 @@
   align-items: center;
   gap: 8px;
   font-size: 0.7rem;
-  color: #7c3aed;
+  color: #14b8a6;
   margin-bottom: 4px;
   font-weight: 600;
 }
 
 .chat-message.own .forward-header {
-  color: #a78bfa;
+  color: #2dd4bf;
 }
 
 .forward-header i {
@@ -5287,7 +5287,7 @@
 }
 
 .forward-sender {
-  color: #7c3aed;
+  color: #14b8a6;
   font-weight: 600;
 }
 
@@ -5418,14 +5418,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 1.1rem;
   flex-shrink: 0;
 }
 
 .search-result-avatar.group-avatar {
-  background: #ede9fe;
-  color: #7c3aed;
+  background: #ccfbf1;
+  color: #14b8a6;
 }
 
 .search-result-details {
@@ -5445,8 +5445,8 @@
 
 .search-result-group-badge {
   font-size: 0.55rem;
-  color: #7c3aed;
-  background: #ede9fe;
+  color: #14b8a6;
+  background: #ccfbf1;
   padding: 1px 8px;
   border-radius: 10px;
   font-weight: 600;
@@ -5479,12 +5479,12 @@
 }
 
 .search-result-btn.btn-subscribe {
-  background: #7c3aed;
+  background: #14b8a6;
   color: white;
 }
 
 .search-result-btn.btn-subscribe:hover {
-  background: #6d28d9;
+  background: #0d9488;
   transform: scale(1.02);
 }
 
@@ -5604,7 +5604,7 @@
 }
 
 .admin-form-wrapper h3 i {
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .admin-form-wrapper .form-category-badge {
@@ -5647,9 +5647,9 @@
 .admin-form-wrapper .form-group input:focus,
 .admin-form-wrapper .form-group textarea:focus,
 .admin-form-wrapper .form-group select:focus {
-  border-color: #7c3aed;
+  border-color: #14b8a6;
   background: #ffffff;
-  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.08);
+  box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.08);
 }
 
 .admin-form-wrapper .form-group textarea {
@@ -5667,7 +5667,7 @@
 
 .admin-form-wrapper .btn-submit {
   padding: 10px 24px;
-  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  background: linear-gradient(135deg, #14b8a6, #0d9488);
   border: none;
   border-radius: 10px;
   color: white;
@@ -5682,7 +5682,7 @@
 
 .admin-form-wrapper .btn-submit:hover {
   transform: scale(1.02);
-  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 4px 16px rgba(20, 184, 166, 0.3);
 }
 
 /* СПИСОК КАТЕГОРИЙ В АДМИНКЕ ФОРУМА */
@@ -5709,8 +5709,8 @@
 }
 
 .category-item-admin.active {
-  background: #ede9fe;
-  border-color: #7c3aed;
+  background: #ccfbf1;
+  border-color: #14b8a6;
 }
 
 .category-item-admin .category-item-info {
@@ -5723,7 +5723,7 @@
 
 .category-item-admin .category-item-info i {
   font-size: 1.1rem;
-  color: #7c3aed;
+  color: #14b8a6;
   width: 24px;
   text-align: center;
 }
@@ -5797,7 +5797,7 @@
 }
 
 .topic-item-admin .topic-title i {
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 0.8rem;
 }
 
@@ -5966,7 +5966,7 @@
 }
 
 .modal-header h3 i {
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .modal-close {
@@ -6026,9 +6026,9 @@
 
 .modal-body .form-group input:focus,
 .modal-body .form-group select:focus {
-  border-color: #7c3aed;
+  border-color: #14b8a6;
   background: #ffffff;
-  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.08);
+  box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.08);
 }
 
 .modal-body .form-group input::placeholder {
@@ -6073,7 +6073,7 @@
 
 .modal-footer .btn-submit {
   padding: 10px 24px;
-  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  background: linear-gradient(135deg, #14b8a6, #0d9488);
   border: none;
   border-radius: 10px;
   color: white;
@@ -6088,7 +6088,7 @@
 
 .modal-footer .btn-submit:hover {
   transform: scale(1.02);
-  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 4px 16px rgba(20, 184, 166, 0.3);
 }
 
 /* ===== АДАПТИВ ===== */
@@ -6232,7 +6232,7 @@
   right: 0;
   width: 60px;
   height: 60px;
-  background: linear-gradient(135deg, transparent 50%, rgba(124, 58, 237, 0.06) 50%);
+  background: linear-gradient(135deg, transparent 50%, rgba(20, 184, 166, 0.06) 50%);
   border-radius: 0 16px 0 0;
   pointer-events: none;
 }
@@ -6245,7 +6245,7 @@
   left: 0;
   width: 40px;
   height: 40px;
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.04) 50%, transparent 50%);
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.04) 50%, transparent 50%);
   border-radius: 0 16px 0 0;
   pointer-events: none;
 }
@@ -6266,7 +6266,7 @@
 }
 
 .ad-title i {
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 0.7rem;
 }
 
@@ -6287,7 +6287,7 @@
 }
 
 .ad-placeholder:hover {
-  border-color: #7c3aed;
+  border-color: #14b8a6;
   background: #faf8ff;
 }
 
@@ -6299,7 +6299,7 @@
 }
 
 .ad-placeholder:hover i {
-  color: #7c3aed;
+  color: #14b8a6;
   transform: scale(1.1);
 }
 
@@ -6319,16 +6319,16 @@
 /* ===== РЕКЛАМА ТИПА "ПОДДЕРЖКА" ===== */
 .ad-block.support {
   background: linear-gradient(135deg, #faf5ff, #f8f4ff);
-  border-color: rgba(124, 58, 237, 0.15);
+  border-color: rgba(20, 184, 166, 0.15);
 }
 
 .ad-block.support .ad-placeholder {
-  background: rgba(124, 58, 237, 0.04);
-  border-color: rgba(124, 58, 237, 0.15);
+  background: rgba(20, 184, 166, 0.04);
+  border-color: rgba(20, 184, 166, 0.15);
 }
 
 .ad-block.support .ad-placeholder i {
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 2.8rem;
 }
 
@@ -6368,11 +6368,11 @@
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: #ede9fe;
+  background: #ccfbf1;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 0.8rem;
   flex-shrink: 0;
 }
@@ -6398,9 +6398,9 @@
 
 .popular-item-views {
   font-size: 0.7rem;
-  color: #7c3aed;
+  color: #14b8a6;
   font-weight: 600;
-  background: #ede9fe;
+  background: #ccfbf1;
   padding: 2px 10px;
   border-radius: 12px;
   flex-shrink: 0;
@@ -6438,7 +6438,7 @@
   padding: 12px;
   border: none;
   border-radius: 10px;
-  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  background: linear-gradient(135deg, #14b8a6, #0d9488);
   color: white;
   font-weight: 600;
   font-size: 0.95rem;
@@ -6452,7 +6452,7 @@
 
 .ad-block.subscribe .subscribe-btn:hover {
   transform: scale(1.02);
-  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 4px 16px rgba(20, 184, 166, 0.3);
 }
 
 /* ===== АДАПТИВ ===== */
@@ -6526,9 +6526,9 @@
 
 /* СВЕТЛАЯ ТЕМА (по умолчанию) */
 :root {
-  --primary-color: #7c3aed;
-  --primary-dark: #6d28d9;
-  --primary-rgb: 124, 58, 237;
+  --primary-color: #14b8a6;
+  --primary-dark: #0d9488;
+  --primary-rgb: 20, 184, 166;
   
   /* Фоны */
   --bg-body: #fbfbfb;
@@ -6536,7 +6536,7 @@
   --bg-sidebar: #ffffff;
   --bg-input: #f8fafc;
   --bg-hover: #f1f5f9;
-  --bg-active: #ede9fe;
+  --bg-active: #ccfbf1;
   
   /* Текст */
   --text-primary: #1a1a2e;
@@ -6582,7 +6582,7 @@
 }
 
 .auth-footer-links a:hover {
-  color: #7c3aed;
+  color: #14b8a6;
   text-decoration: underline;
 }
 
@@ -6629,14 +6629,14 @@
 }
 
 .auth-footer a {
-  color: #7c3aed;
+  color: #14b8a6;
   text-decoration: none;
   font-weight: 600;
   transition: color 0.3s ease;
 }
 
 .auth-footer a:hover {
-  color: #6d28d9;
+  color: #0d9488;
   text-decoration: underline;
 }
 
@@ -6663,8 +6663,8 @@
 }
 
 .auth-footer-links a:hover {
-  color: #7c3aed;
-  background: rgba(124, 58, 237, 0.06);
+  color: #14b8a6;
+  background: rgba(20, 184, 166, 0.06);
 }
 
 .footer-divider {
@@ -6683,7 +6683,7 @@
 }
 
 .auth-copyright span {
-  color: #7c3aed;
+  color: #14b8a6;
   font-weight: 500;
 }
 
@@ -6707,6 +6707,6 @@
   font-size: 0.85rem;
 }
 
-
-
+@import 'sidebar-theme';
+@import 'glass-theme';
 

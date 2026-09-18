@@ -224,13 +224,13 @@ function AdminSettings({ settings, setSettings }) {
                   <div className="color-picker-wrapper">
                     <input
                       type="color"
-                      value={settings.primaryColor || '#7c3aed'}
+                      value={settings.primaryColor || '#14b8a6'}
                       onChange={handleColorChange}
                       className="color-picker"
                     />
                     <input
                       type="text"
-                      value={settings.primaryColor || '#7c3aed'}
+                      value={settings.primaryColor || '#14b8a6'}
                       onChange={handleColorChange}
                       className="color-hex"
                     />

@@ -27,11 +27,11 @@
 }
 
 .comments-toggle-btn:hover {
-  border-color: #7c3aed;
-  color: #7c3aed;
-  background: rgba(124, 58, 237, 0.06);
+  border-color: #14b8a6;
+  color: #14b8a6;
+  background: rgba(20, 184, 166, 0.06);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.1);
+  box-shadow: 0 4px 12px rgba(20, 184, 166, 0.1);
 }
 
 .comments-toggle-btn:active {
@@ -40,7 +40,7 @@
 
 .comments-toggle-btn i {
   font-size: 1rem;
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .comments-toggle-btn .comments-count {
@@ -56,8 +56,8 @@
 }
 
 .comments-toggle-btn:hover .comments-count {
-  background: #ede9fe;
-  color: #7c3aed;
+  background: #ccfbf1;
+  color: #14b8a6;
 }
 
 .comments-toggle-btn .comments-label {
@@ -140,7 +140,7 @@
 }
 
 .comments-modal-header h3 i {
-  color: #7c3aed;
+  color: #14b8a6;
   font-size: 1.2rem;
 }
 
@@ -214,9 +214,9 @@
 }
 
 .comment-input:focus {
-  border-color: #7c3aed;
+  border-color: #14b8a6;
   background: #ffffff;
-  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.08);
+  box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.08);
 }
 
 .comment-input::placeholder {
@@ -226,7 +226,7 @@
 .comment-form .btn-submit {
   align-self: flex-end;
   padding: 10px 24px;
-  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  background: linear-gradient(135deg, #14b8a6, #0d9488);
   border: none;
   border-radius: 12px;
   color: white;
@@ -241,7 +241,7 @@
 
 .comment-form .btn-submit:hover:not(:disabled) {
   transform: scale(1.02);
-  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.3);
+  box-shadow: 0 4px 16px rgba(20, 184, 166, 0.3);
 }
 
 .comment-form .btn-submit:disabled {
@@ -319,7 +319,7 @@
 }
 
 .comment-login-hint a {
-  color: #7c3aed;
+  color: #14b8a6;
   font-weight: 600;
   text-decoration: none;
   transition: 0.2s;
@@ -327,7 +327,7 @@
 
 .comment-login-hint a:hover {
   text-decoration: underline;
-  color: #6d28d9;
+  color: #0d9488;
 }
 
 .comments-loading {
@@ -338,7 +338,7 @@
 
 .comments-loading i {
   margin-right: 8px;
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .comments-empty {

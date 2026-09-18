@@ -4,6 +4,7 @@ import { get, post } from '../utils/api';
 import {
   buildTopicsMap,
   fetchTechnologies,
+  invalidateTechnologiesCache,
   readTechnologiesSnapshot,
 } from '../utils/studyData';
 import { sanitizeHtml } from '../utils/sanitize';
@@ -11,12 +12,13 @@ import YandexAd from '../components/YandexAd';
 import { YANDEX_RTB_BLOCK_ID } from '../config/env';
 import { useAuth } from '../context/AuthProvider';
 import UserFooter from '../components/UserFooter';
+import { SITE_LOGO_URL } from '../utils/brand';
 
 export default function HomePage({ settings }) {
   const { user: currentUser, logout } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeCategory, setActiveCategory] = useState(null);
-  const [activeTopic, setActiveTopic] = useState(null);
+  const [activeCategoryId, setActiveCategoryId] = useState(null);
+  const [activeTopicId, setActiveTopicId] = useState(null);
   const [selectedContent, setSelectedContent] = useState(null);
   const [breadcrumbs, setBreadcrumbs] = useState([]);
   const [categories, setCategories] = useState(() => readTechnologiesSnapshot() || []);
@@ -56,8 +58,22 @@ export default function HomePage({ settings }) {
     };
 
     loadData();
+
+    const reloadFresh = () => {
+      invalidateTechnologiesCache();
+      loadData();
+    };
+
+    window.addEventListener('focus', reloadFresh);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        reloadFresh();
+      }
+    });
+
     return () => {
       cancelled = true;
+      window.removeEventListener('focus', reloadFresh);
     };
   }, []);
 
@@ -125,35 +141,40 @@ export default function HomePage({ settings }) {
   }, [selectedContent]);
 
   const filteredCategories = useMemo(() => {
-    const query = searchTerm.toLowerCase();
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) {
+      return categories.map((cat) => ({
+        ...cat,
+        topics: topicsMap[cat.id] || cat.topics || [],
+      }));
+    }
+
     return categories
       .map((cat) => {
-        const topics = (topicsMap[cat.id] || []).filter(
-          (topic) =>
-            topic.title.toLowerCase().includes(query) ||
-            cat.name.toLowerCase().includes(query),
-        );
+        const topics = (topicsMap[cat.id] || cat.topics || []).filter((topic) => {
+          const topicMatch = topic.title.toLowerCase().includes(query);
+          const subtopicMatch = (topic.subtopics || []).some((st) =>
+            st.title.toLowerCase().includes(query),
+          );
+          return topicMatch || subtopicMatch || cat.name.toLowerCase().includes(query);
+        });
         return { ...cat, topics };
       })
-      .filter((cat) => cat.topics.length > 0 || searchTerm === '');
+      .filter((cat) => cat.topics.length > 0 || cat.name.toLowerCase().includes(query));
   }, [categories, topicsMap, searchTerm]);
 
-  const toggleCategory = (name) => {
-    if (activeCategory === name) {
-      setActiveCategory(null);
-      setActiveTopic(null);
+  const toggleCategory = (categoryId) => {
+    if (activeCategoryId === categoryId) {
+      setActiveCategoryId(null);
+      setActiveTopicId(null);
     } else {
-      setActiveCategory(name);
-      setActiveTopic(null);
+      setActiveCategoryId(categoryId);
+      setActiveTopicId(null);
     }
   };
 
-  const toggleTopic = (title) => {
-    if (activeTopic === title) {
-      setActiveTopic(null);
-    } else {
-      setActiveTopic(title);
-    }
+  const toggleTopic = (topicId) => {
+    setActiveTopicId((prev) => (prev === topicId ? null : topicId));
   };
 
   const handleSelectTopic = (categoryName, topic) => {
@@ -161,35 +182,33 @@ export default function HomePage({ settings }) {
       id: topic.id,
       type: 'topic',
       title: topic.title,
-      description: topic.content || topic.description || 'Описание отсутствует',
+      description: topic.description || 'Описание отсутствует',
       technologies: [categoryName],
     });
     setBreadcrumbs([
       { name: categoryName, type: 'category' },
       { name: topic.title, type: 'topic' },
     ]);
-    if (activeTopic !== topic.title) {
-      setActiveTopic(topic.title);
+    if (topic.subtopics?.length) {
+      setActiveTopicId(topic.id);
     }
   };
 
-  const handleSelectSubTopic = (categoryName, topicTitle, subtopic) => {
+  const handleSelectSubTopic = (categoryName, topic, subtopic) => {
     setSelectedContent({
       id: subtopic.id,
       type: 'subtopic',
       title: subtopic.title,
       description: subtopic.description || 'Описание отсутствует',
-      parentTopic: topicTitle,
+      parentTopic: topic.title,
       parentCategory: categoryName,
     });
     setBreadcrumbs([
       { name: categoryName, type: 'category' },
-      { name: topicTitle, type: 'topic' },
+      { name: topic.title, type: 'topic' },
       { name: subtopic.title, type: 'subtopic' },
     ]);
-    if (activeTopic !== topicTitle) {
-      setActiveTopic(topicTitle);
-    }
+    setActiveTopicId(topic.id);
   };
 
   useEffect(() => {
@@ -205,10 +224,10 @@ export default function HomePage({ settings }) {
       <div className="home-container">
         <div className="left_container">
           <div className="header">
-            <img className="logo" src={settings?.logoUrl || '/logo.png'} alt="logo" />
+            <img className="logo" src={SITE_LOGO_URL} alt="дубльпар.online" />
           </div>
           <div style={{ padding: '40px', textAlign: 'center' }}>
-            <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', color: '#7c3aed' }}></i>
+            <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', color: '#14b8a6' }}></i>
             <p style={{ color: '#94a3b8', marginTop: '12px' }}>Загрузка...</p>
           </div>
         </div>
@@ -231,7 +250,7 @@ export default function HomePage({ settings }) {
     <div className="home-container">
       <div className="left_container">
         <div className="header">
-          <img className="logo" src={settings?.logoUrl || '/logo.png'} alt="logo" />
+          <img className="logo" src={SITE_LOGO_URL} alt="дубльпар.online" />
         </div>
 
         <div className="search-container">
@@ -256,48 +275,50 @@ export default function HomePage({ settings }) {
           {filteredCategories.map((category) => (
             <div key={category.id} className="category-item">
               <div
-                className={`category-header ${activeCategory === category.name ? 'active' : ''}`}
-                onClick={() => toggleCategory(category.name)}
+                className={`category-header ${activeCategoryId === category.id ? 'active' : ''}`}
+                onClick={() => toggleCategory(category.id)}
               >
                 <i className={`${category.icon || 'fas fa-folder'} category-icon`}></i>
                 <span className="category-name">{category.name}</span>
                 <span className="topic-count">{category.topics.length} тем</span>
-                <i className={`fas fa-chevron-${activeCategory === category.name ? 'down' : 'right'} category-arrow`}></i>
+                <i className={`fas fa-chevron-${activeCategoryId === category.id ? 'down' : 'right'} category-arrow`}></i>
               </div>
 
-              {activeCategory === category.name && (
+              {activeCategoryId === category.id && (
                 <div className="topics-list">
                   {category.topics.map((topic) => {
                     const hasSubtopics = topic.subtopics && topic.subtopics.length > 0;
+                    const isExpanded = activeTopicId === topic.id;
                     return (
                       <div key={topic.id} className="topic-item-wrapper">
                         <div
-                          className={`topic-header ${activeTopic === topic.title ? 'active' : ''}`}
-                          onClick={() => {
-                            if (hasSubtopics) {
-                              toggleTopic(topic.title);
-                            }
-                            handleSelectTopic(category.name, topic);
-                          }}
-                          style={{ cursor: hasSubtopics ? 'pointer' : 'default' }}
+                          className={`topic-header ${selectedContent?.type === 'topic' && selectedContent?.id === topic.id ? 'active' : ''}`}
+                          onClick={() => handleSelectTopic(category.name, topic)}
+                          style={{ cursor: 'pointer' }}
                         >
                           <i className="fas fa-circle topic-dot"></i>
                           <span className="topic-title">{topic.title}</span>
                           {hasSubtopics && (
                             <>
                               <span className="topic-count">{topic.subtopics.length} подтем</span>
-                              <i className={`fas fa-chevron-${activeTopic === topic.title ? 'down' : 'right'} topic-arrow`}></i>
+                              <i
+                                className={`fas fa-chevron-${isExpanded ? 'down' : 'right'} topic-arrow`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleTopic(topic.id);
+                                }}
+                              ></i>
                             </>
                           )}
                         </div>
 
-                        {activeTopic === topic.title && hasSubtopics && (
+                        {isExpanded && hasSubtopics && (
                           <div className="subtopics-list">
                             {topic.subtopics.map((subtopic) => (
                               <div
                                 key={subtopic.id}
-                                className="subtopic-item"
-                                onClick={() => handleSelectSubTopic(category.name, topic.title, subtopic)}
+                                className={`subtopic-item ${selectedContent?.type === 'subtopic' && selectedContent?.id === subtopic.id ? 'active' : ''}`}
+                                onClick={() => handleSelectSubTopic(category.name, topic, subtopic)}
                               >
                                 <i className="fas fa-circle subtopic-dot"></i>
                                 <span className="subtopic-title">{subtopic.title}</span>

@@ -1,0 +1,203 @@
+/* Apple-style glassmorphism (iOS) */
+
+@mixin glass-light($blur: 20px) {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur($blur) saturate(180%);
+  -webkit-backdrop-filter: blur($blur) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow:
+    0 8px 32px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+@mixin glass-dark($blur: 24px) {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur($blur) saturate(160%);
+  -webkit-backdrop-filter: blur($blur) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+@mixin glass-teal {
+  background: linear-gradient(
+    135deg,
+    rgba(45, 212, 191, 0.82) 0%,
+    rgba(20, 184, 166, 0.88) 55%,
+    rgba(13, 148, 136, 0.92) 100%
+  );
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 6px 20px rgba(20, 184, 166, 0.28);
+}
+
+/* ===== Forum / chat ===== */
+.chat-app .chat-header {
+  @include glass-light(22px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+}
+
+.chat-app .chat-header-avatar {
+  background: linear-gradient(135deg, #2dd4bf, #14b8a6);
+  box-shadow: 0 4px 14px rgba(20, 184, 166, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.chat-app .chat-input-area {
+  @include glass-light(22px);
+  border-top: 1px solid rgba(255, 255, 255, 0.45);
+  padding: 12px 16px 16px;
+}
+
+.chat-app .chat-input-wrapper {
+  @include glass-light(18px);
+  border-radius: 22px;
+  padding: 4px 6px 4px 10px;
+  flex: 1;
+}
+
+.chat-app .chat-input-wrapper .chat-input {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.chat-app .chat-input-wrapper .chat-attach-btn:hover:not(:disabled),
+.chat-app .chat-input-wrapper .chat-emoji-btn:hover:not(:disabled) {
+  background: rgba(20, 184, 166, 0.12);
+}
+
+.chat-app .chat-send-btn {
+  @include glass-teal;
+  border-radius: 50%;
+}
+
+.chat-app .chat-message:not(.own):not(.system) .chat-message-bubble {
+  @include glass-light(16px);
+  border-radius: 18px;
+  border-top-left-radius: 6px;
+}
+
+.chat-app .chat-message.own .chat-message-bubble {
+  @include glass-teal;
+  border-radius: 18px;
+  border-top-right-radius: 6px;
+  border-top-left-radius: 18px;
+}
+
+.chat-app .chat-message.system .chat-message-bubble {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.05);
+}
+
+.chat-sidebar .chat-contact {
+  border: 1px solid transparent;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.chat-sidebar .chat-contact:hover {
+  @include glass-dark(18px);
+}
+
+.chat-sidebar .chat-contact.active {
+  @include glass-dark(20px);
+  border-color: rgba(45, 212, 191, 0.35);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.15),
+    inset 0 0 0 1px rgba(45, 212, 191, 0.2);
+}
+
+.chat-sidebar .chat-sidebar-search input {
+  @include glass-dark(16px);
+}
+
+.chat-sidebar .footer {
+  @include glass-dark(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* ===== Главная ===== */
+.left_container {
+  .search-input {
+    @include glass-dark(16px);
+  }
+
+  .forum-menu-item {
+    @include glass-dark(18px);
+    border-color: rgba(45, 212, 191, 0.28) !important;
+
+    &:hover {
+      background: rgba(20, 184, 166, 0.16);
+      backdrop-filter: blur(20px) saturate(160%);
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+      border-color: rgba(45, 212, 191, 0.45) !important;
+    }
+  }
+
+  .footer {
+    @include glass-dark(20px);
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+  }
+
+}
+
+/* ===== Контент главной — без заднего блока ===== */
+.home-container .content-viewer {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+  min-height: auto;
+}
+
+.home-container .content-header {
+  border-bottom: 1px solid #e8edf2;
+  padding-bottom: 18px;
+  margin-bottom: 22px;
+}
+
+.home-container .content-empty-state {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+}
+
+.home-container .tech-tag {
+  background: rgba(20, 184, 166, 0.08);
+  border: 1px solid rgba(20, 184, 166, 0.18);
+}
+
+/* ===== Авторизация ===== */
+.auth-container {
+  background: rgba(255, 255, 255, 0.68) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  box-shadow:
+    0 24px 64px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+.auth-form .form-group input {
+  background: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.45) !important;
+}
+
+.auth-form .btn-submit {
+  box-shadow: 0 8px 24px rgba(20, 184, 166, 0.28);
+}

@@ -67,11 +67,12 @@ async def get_technologies(db: AsyncSession = Depends(get_db)):
                             "id": subtopic.id,
                             "title": subtopic.title,
                             "description": subtopic.description,
+                            "sort_order": subtopic.sort_order,
                         }
-                        for subtopic in topic.subtopics
+                        for subtopic in sorted(topic.subtopics, key=lambda s: s.sort_order)
                     ],
                 }
-                for topic in tech.topics
+                for topic in sorted(tech.topics, key=lambda t: t.sort_order)
             ],
         }
         for tech in technologies

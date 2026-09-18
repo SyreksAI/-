@@ -33,6 +33,7 @@ import {
 import { useAuth } from '../context/AuthProvider';
 import useActivityTracker from '../hooks/useActivityTracker';
 import UserFooter from '../components/UserFooter';
+import { SITE_LOGO_MIN_URL } from '../utils/brand';
 import { CACHE_TTL, forumCacheKey } from '../utils/requestCache';
 import { UPLOAD_ACCEPT } from '../utils/uploadLimits';
 import { retainUploadPreview } from '../utils/uploadPreviewCache';
@@ -1642,7 +1643,7 @@ function Forum() {
       <div className={`chat-sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
         <div className="chat-sidebar-header">
           <button className="chat-back" onClick={() => navigate(-1)}><i className="fas fa-arrow-left"></i></button>
-          <img className="logo_chat" src="/logo_min.png" alt="logo" />
+          <img className="logo_chat" src={SITE_LOGO_MIN_URL} alt="дубльпар.online" />
           <h3>Forum</h3>
           <button className="chat-mobile-close" onClick={() => setIsMobileMenuOpen(false)}><i className="fas fa-times"></i></button>
         </div>
@@ -1776,7 +1777,7 @@ function Forum() {
                 <div className="chat-contact-info" style={{ flex: 1, minWidth: 0 }}>
                   <div className="chat-contact-name" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: '8px' }}>{chat.name}</span>
-                    {chat.isPinned && <i className="fas fa-thumbtack" style={{ color: '#7c3aed', fontSize: '0.85rem', transform: 'rotate(45deg)', flexShrink: 0 }} title="Закреплено"></i>}
+                    {chat.isPinned && <i className="fas fa-thumbtack" style={{ color: '#14b8a6', fontSize: '0.85rem', transform: 'rotate(45deg)', flexShrink: 0 }} title="Закреплено"></i>}
                   </div>
                   {lastMsg ? (
                     <div className="chat-contact-lastmsg">{lastMsg.user}: {lastMsg.text.length > 30 ? lastMsg.text.substring(0, 30) + '...' : lastMsg.text}</div>
@@ -1820,7 +1821,7 @@ function Forum() {
               <i className="fas fa-search" style={{ fontSize: '0.9rem', color: '#10b981', width: '18px', textAlign: 'center' }}></i><span>Найти друга</span>
             </div>
             <div className="context-menu-item" onClick={() => { setShowAddUserModal(true); setActionMenuPos(null); }} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1a1a2e', transition: '0.2s', fontWeight: 500 }}>
-              <i className="fas fa-user-plus" style={{ fontSize: '0.9rem', color: '#7c3aed', width: '18px', textAlign: 'center' }}></i><span>Добавить в чат</span>
+              <i className="fas fa-user-plus" style={{ fontSize: '0.9rem', color: '#14b8a6', width: '18px', textAlign: 'center' }}></i><span>Добавить в чат</span>
             </div>
           </div>
         </>,
@@ -1837,7 +1838,7 @@ function Forum() {
             </div>
             <div className="modal-body" style={{ padding: '0' }}>
               <div style={{ textAlign: 'center', padding: '24px 20px', borderBottom: '1px solid #e2e8f0' }}>
-                <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: '#7c3aed', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', margin: '0 auto 12px' }}>
+                <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: '#14b8a6', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', margin: '0 auto 12px' }}>
                   <i className="fas fa-users"></i>
                 </div>
                 <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#1a1a2e', margin: '0 0 4px' }}>{currentChat.name}</h2>
@@ -1845,7 +1846,7 @@ function Forum() {
               </div>
               <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0' }}>
                 {['members', 'media', 'admins'].map(tab => (
-                  <button key={tab} onClick={() => setGroupInfoTab(tab)} style={{ flex: 1, padding: '14px', border: 'none', background: 'transparent', fontSize: '0.9rem', fontWeight: 600, color: groupInfoTab === tab ? '#7c3aed' : '#64748b', borderBottom: groupInfoTab === tab ? '2px solid #7c3aed' : 'none', cursor: 'pointer', transition: '0.2s' }}>
+                  <button key={tab} onClick={() => setGroupInfoTab(tab)} style={{ flex: 1, padding: '14px', border: 'none', background: 'transparent', fontSize: '0.9rem', fontWeight: 600, color: groupInfoTab === tab ? '#14b8a6' : '#64748b', borderBottom: groupInfoTab === tab ? '2px solid #14b8a6' : 'none', cursor: 'pointer', transition: '0.2s' }}>
                     {tab === 'members' ? 'Участники' : tab === 'media' ? 'Медиа' : 'Администраторы'}
                   </button>
                 ))}
@@ -1856,14 +1857,14 @@ function Forum() {
                   const isAdmin = memberId === currentChat.creatorId;
                   return (
                     <div key={memberId} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', borderRadius: '8px', transition: '0.2s' }} onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                      <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed', fontSize: '1.1rem' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#14b8a6', fontSize: '1.1rem' }}>
                         <i className="fas fa-user"></i>
                       </div>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#1a1a2e' }}>{u.name}</div>
                         <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>@{u.username}</div>
                       </div>
-                      {isAdmin && <span style={{ fontSize: '0.7rem', background: '#ede9fe', color: '#7c3aed', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>Создатель</span>}
+                      {isAdmin && <span style={{ fontSize: '0.7rem', background: '#ccfbf1', color: '#14b8a6', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>Создатель</span>}
                     </div>
                   );
                 })}
@@ -1879,12 +1880,12 @@ function Forum() {
                       const admin = getUserById(currentChat.creatorId);
                       return (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', borderRadius: '8px', background: '#f8fafc' }}>
-                          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#7c3aed', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>
+                          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#14b8a6', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>
                             <i className="fas fa-crown"></i>
                           </div>
                           <div>
                             <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#1a1a2e' }}>{admin.name}</div>
-                            <div style={{ fontSize: '0.8rem', color: '#7c3aed', fontWeight: 500 }}>Администратор группы</div>
+                            <div style={{ fontSize: '0.8rem', color: '#14b8a6', fontWeight: 500 }}>Администратор группы</div>
                           </div>
                         </div>
                       );
@@ -1916,8 +1917,8 @@ function Forum() {
                   {users.filter(u => u.id !== user?.id).map(u => {
                     const isSelected = selectedGroupMembers.some(m => m.id === u.id);
                     return (
-                      <div key={u.id} onClick={() => toggleGroupMember(u)} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', borderRadius: '8px', cursor: 'pointer', background: isSelected ? '#ede9fe' : 'transparent', transition: '0.2s' }}>
-                        <div style={{ width: '18px', height: '18px', borderRadius: '4px', border: `2px solid ${isSelected ? '#7c3aed' : '#cbd5e1'}`, background: isSelected ? '#7c3aed' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div key={u.id} onClick={() => toggleGroupMember(u)} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', borderRadius: '8px', cursor: 'pointer', background: isSelected ? '#ccfbf1' : 'transparent', transition: '0.2s' }}>
+                        <div style={{ width: '18px', height: '18px', borderRadius: '4px', border: `2px solid ${isSelected ? '#14b8a6' : '#cbd5e1'}`, background: isSelected ? '#14b8a6' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           {isSelected && <i className="fas fa-check" style={{ color: 'white', fontSize: '0.7rem' }}></i>}
                         </div>
                         <div>
@@ -1931,7 +1932,7 @@ function Forum() {
               </div>
               <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                 <button type="button" onClick={() => setShowCreateGroupModal(false)} style={{ padding: '10px 20px', background: '#f1f5f9', border: 'none', borderRadius: '10px', color: '#64748b', fontWeight: 600, cursor: 'pointer' }}>Отмена</button>
-                <button type="submit" style={{ padding: '10px 20px', background: '#7c3aed', border: 'none', borderRadius: '10px', color: 'white', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}><i className="fas fa-check"></i> Создать</button>
+                <button type="submit" style={{ padding: '10px 20px', background: '#14b8a6', border: 'none', borderRadius: '10px', color: 'white', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}><i className="fas fa-check"></i> Создать</button>
               </div>
             </form>
           </div>
@@ -1944,7 +1945,7 @@ function Forum() {
         <div className="popover-backdrop" onMouseDown={() => setContextMenu(null)} aria-hidden="true" />
         <div ref={chatContextMenuRef} className="context-menu" style={{ position: 'fixed', top: `${contextMenu.y}px`, left: `${contextMenu.x}px`, zIndex: 100001, background: '#ffffff', borderRadius: '12px', boxShadow: '0 8px 30px rgba(0, 0, 0, 0.15)', padding: '6px 0', minWidth: '200px', animation: 'contextFadeIn 0.15s ease' }} onMouseDown={(e) => e.stopPropagation()}>
           <div className="context-menu-item" onClick={handleTogglePin} style={{ padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.9rem', color: '#1a1a2e', transition: '0.2s', fontWeight: 500 }}>
-            <i className={`fas ${contextMenu.isPinned ? 'fa-times' : 'fa-thumbtack'}`} style={{ fontSize: '0.9rem', color: '#7c3aed', width: '18px', textAlign: 'center' }}></i>
+            <i className={`fas ${contextMenu.isPinned ? 'fa-times' : 'fa-thumbtack'}`} style={{ fontSize: '0.9rem', color: '#14b8a6', width: '18px', textAlign: 'center' }}></i>
             <span>{contextMenu.isPinned ? 'Открепить' : 'Закрепить'}</span>
           </div>
 
@@ -2007,7 +2008,7 @@ function Forum() {
               </div>
               <div style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                 <button type="button" onClick={() => setShowRenameModal(null)} style={{ padding: '10px 20px', background: '#f1f5f9', border: 'none', borderRadius: '10px', color: '#64748b', fontWeight: 600, cursor: 'pointer' }}>Отмена</button>
-                <button type="submit" style={{ padding: '10px 20px', background: '#7c3aed', border: 'none', borderRadius: '10px', color: 'white', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}><i className="fas fa-check"></i> Сохранить</button>
+                <button type="submit" style={{ padding: '10px 20px', background: '#14b8a6', border: 'none', borderRadius: '10px', color: 'white', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}><i className="fas fa-check"></i> Сохранить</button>
               </div>
             </form>
           </div>
@@ -2106,13 +2107,13 @@ function Forum() {
             <div className="chat-header-avatar"><i className={currentChat?.icon || 'fas fa-user'}></i></div>
             <div className="chat-header-text">
               <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                {currentChat?.isPinned && <i className="fas fa-thumbtack" style={{ color: '#7c3aed', fontSize: '0.9rem', transform: 'rotate(45deg)' }}></i>}
+                {currentChat?.isPinned && <i className="fas fa-thumbtack" style={{ color: '#14b8a6', fontSize: '0.9rem', transform: 'rotate(45deg)' }}></i>}
                 {currentChat?.type === 'group' ? (
-                  <span onClick={() => setShowGroupInfo(true)} style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.color = '#7c3aed'} onMouseLeave={(e) => e.currentTarget.style.color = 'inherit'} title="Информация о группе">
+                  <span onClick={() => setShowGroupInfo(true)} style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.color = '#14b8a6'} onMouseLeave={(e) => e.currentTarget.style.color = 'inherit'} title="Информация о группе">
                     {currentChat?.name || 'Группа'}
                   </span>
                 ) : currentChat?.type === 'private' && currentChat?.userId ? (
-                  <Link to={`/profile/${currentChat.userId}`} style={{ textDecoration: 'none', color: 'inherit', display: 'flex', alignItems: 'center', gap: '8px', transition: 'color 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.color = '#7c3aed'} onMouseLeave={(e) => e.currentTarget.style.color = 'inherit'} title="Перейти в профиль">
+                  <Link to={`/profile/${currentChat.userId}`} style={{ textDecoration: 'none', color: 'inherit', display: 'flex', alignItems: 'center', gap: '8px', transition: 'color 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.color = '#14b8a6'} onMouseLeave={(e) => e.currentTarget.style.color = 'inherit'} title="Перейти в профиль">
                     {currentChat?.name || 'Чат'}
                   </Link>
                 ) : (currentChat?.name || 'Чат')}
@@ -2408,8 +2409,8 @@ function Forum() {
                       >
                         <div className="share-contact-info">
                           <div className="share-contact-avatar" style={{ 
-                            background: isGroup ? '#ede9fe' : '#e2e8f0',
-                            color: isGroup ? '#7c3aed' : '#7c3aed'
+                            background: isGroup ? '#ccfbf1' : '#e2e8f0',
+                            color: isGroup ? '#14b8a6' : '#14b8a6'
                           }}>
                             <i className={contact.avatar || (isGroup ? 'fas fa-users' : 'fas fa-user-circle')}></i>
                           </div>
@@ -2419,8 +2420,8 @@ function Forum() {
                               {isGroup && (
                                 <span style={{ 
                                   fontSize: '0.6rem', 
-                                  color: '#7c3aed', 
-                                  background: '#ede9fe', 
+                                  color: '#14b8a6', 
+                                  background: '#ccfbf1', 
                                   padding: '1px 8px', 
                                   borderRadius: '10px',
                                   marginLeft: '8px',
@@ -2473,7 +2474,7 @@ function Forum() {
                 className="btn-submit"
                 onClick={handleShareToContacts}
                 disabled={selectedContacts.length === 0}
-                style={{ padding: '10px 20px', background: selectedContacts.length === 0 ? '#94a3b8' : '#7c3aed', border: 'none', borderRadius: '10px', color: 'white', fontWeight: 600, cursor: selectedContacts.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                style={{ padding: '10px 20px', background: selectedContacts.length === 0 ? '#94a3b8' : '#14b8a6', border: 'none', borderRadius: '10px', color: 'white', fontWeight: 600, cursor: selectedContacts.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
                 <i className="fas fa-paper-plane"></i> Отправить ({selectedContacts.length})
               </button>

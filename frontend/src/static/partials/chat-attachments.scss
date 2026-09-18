@@ -48,8 +48,8 @@ $chat-media-width: 320px;
   gap: 4px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(124, 58, 237, 0.12);
-  color: #7c3aed;
+  background: rgba(20, 184, 166, 0.12);
+  color: #14b8a6;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -229,7 +229,7 @@ $chat-media-width: 320px;
   height: 56px;
   border: none;
   border-radius: 50%;
-  background: rgba(124, 58, 237, 0.92);
+  background: rgba(20, 184, 166, 0.92);
   color: #fff;
   display: flex;
   align-items: center;
@@ -275,7 +275,7 @@ $chat-media-width: 320px;
   height: 36px;
   border: none;
   border-radius: 50%;
-  background: #7c3aed;
+  background: #14b8a6;
   color: #fff;
   display: flex;
   align-items: center;
@@ -295,7 +295,7 @@ $chat-media-width: 320px;
 
 .chat-audio-progress {
   height: 100%;
-  background: #7c3aed;
+  background: #14b8a6;
   border-radius: 999px;
 }
 
@@ -333,8 +333,8 @@ $chat-media-width: 320px;
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: rgba(124, 58, 237, 0.1);
-  color: #7c3aed;
+  background: rgba(20, 184, 166, 0.1);
+  color: #14b8a6;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -442,7 +442,7 @@ $chat-media-width: 320px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7c3aed;
+  color: #14b8a6;
 }
 
 .chat-staging-play {
@@ -489,7 +489,7 @@ $chat-media-width: 320px;
 
 .chat-staging-progress-bar {
   height: 100%;
-  background: #7c3aed;
+  background: #14b8a6;
   transition: width 0.15s ease;
 }
 

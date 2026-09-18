@@ -50,9 +50,9 @@ const NotificationToast = ({ message, type = 'info', duration = 4000, onClose })
         };
       case 'subscription':
         return {
-          background: '#ede9fe',
-          borderColor: '#7c3aed',
-          color: '#5b21b6',
+          background: '#ccfbf1',
+          borderColor: '#14b8a6',
+          color: '#0f766e',
           label: 'Подписка',
         };
       case 'message':

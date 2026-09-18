@@ -23,7 +23,7 @@ import AdminLayout from './layouts/AdminLayout';
 import AppLoadingScreen from './components/AppLoadingScreen';
 import CookieConsent from './components/CookieConsent';
 import { initCookieConsent } from './utils/cookieConsent';
-import { BRAND_PLATFORM } from './utils/brand';
+import { BRAND_PLATFORM, BRAND_PRIMARY } from './utils/brand';
 
 const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 const AdminUsers = lazy(() => import('./pages/AdminUsers'));
@@ -88,7 +88,7 @@ function App() {
     siteName: BRAND_PLATFORM,
     siteDescription: 'Образовательный проект по РПО',
     logoUrl: '/logo.png',
-    primaryColor: '#7c3aed',
+    primaryColor: BRAND_PRIMARY,
     registrationEnabled: true,
     maintenanceMode: false,
     enableComments: true,
@@ -141,14 +141,15 @@ function App() {
   }, [location.pathname]);
 
   useEffect(() => {
-    const primaryColor = settings?.primaryColor || '#7c3aed';
+    const primaryColor = BRAND_PRIMARY;
     document.documentElement.style.setProperty('--primary-color', primaryColor);
-    document.documentElement.style.setProperty('--primary-color-rgb', hexToRgb(primaryColor));
+    document.documentElement.style.setProperty('--primary-dark', '#0d9488');
+    document.documentElement.style.setProperty('--primary-color-rgb', '20, 184, 166');
   }, [settings?.primaryColor]);
 
   const hexToRgb = (hex) => {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '124, 58, 237';
+    return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '20, 184, 166';
   };
 
   const pathname = window.location.pathname;

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { get, post, put, del } from '../utils/api';
-import { fetchTechnologies } from '../utils/studyData';
+import { post, put, del } from '../utils/api';
+import { fetchTechnologies, invalidateTechnologiesCache } from '../utils/studyData';
 import { getAuthHeaders, isAdminUser, clearAuthStorage } from '../utils/auth';
 import { useAuth } from '../context/AuthProvider';
 import AdminPageLoading from '../components/AdminPageLoading';
@@ -27,8 +27,8 @@ function AdminPanel({ settings }) {
   // ===== СОСТОЯНИЯ =====
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeCategory, setActiveCategory] = useState(null);
-  const [activeTopic, setActiveTopic] = useState(null);
+  const [activeCategoryId, setActiveCategoryId] = useState(null);
+  const [activeTopicId, setActiveTopicId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editingSubTopicId, setEditingSubTopicId] = useState(null);
   const [editingCategoryId, setEditingCategoryId] = useState(null);
@@ -60,6 +60,7 @@ function AdminPanel({ settings }) {
   // ===== СОСТОЯНИЯ ДЛЯ ИНЛАЙН-ДОБАВЛЕНИЯ ПОДТЕМЫ =====
   const [showSubTopicField, setShowSubTopicField] = useState(false);
   const [subTopicTitle, setSubTopicTitle] = useState('');
+  const [addingSubTopicMode, setAddingSubTopicMode] = useState(false);
 
   const [newTopic, setNewTopic] = useState({
     title: '',
@@ -93,42 +94,50 @@ function AdminPanel({ settings }) {
 
   const fontSizes = [10, 12, 14, 16, 18, 24];
 
+  const refreshCategories = useCallback(async () => {
+    invalidateTechnologiesCache();
+    const data = await fetchTechnologies();
+    setCategories(data);
+    return data;
+  }, []);
+
   // ===== ЗАГРУЗКА ДАННЫХ ИЗ БД =====
   useEffect(() => {
+    let cancelled = false;
+
     const loadCategories = async () => {
       try {
         const data = await fetchTechnologies();
-        const enrichedData = await Promise.all(data.map(async (tech) => {
-          const topics = await get(`/api/study/technologies/${tech.id}/topics`);
-          const enrichedTopics = await Promise.all(topics.map(async (topic) => {
-            const subtopics = await get(`/api/study/topics/${topic.id}/subtopics`);
-            return { ...topic, subtopics };
-          }));
-          return { ...tech, topics: enrichedTopics };
-        }));
-        setCategories(enrichedData);
+        if (!cancelled) {
+          setCategories(data);
+        }
       } catch (error) {
-        console.error('Ошибка загрузки категорий:', error);
+        if (!cancelled) {
+          console.error('Ошибка загрузки категорий:', error);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
+
     loadCategories();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
-  const getActiveCategory = useCallback(() => {
-    return categories.find(c => c.name === activeCategory);
-  }, [categories, activeCategory]);
+  const activeCategoryData = useMemo(
+    () => categories.find((c) => c.id === activeCategoryId) || null,
+    [categories, activeCategoryId],
+  );
 
-  const activeCategoryData = getActiveCategory();
-
-  const getActiveTopic = useCallback(() => {
-    if (!activeCategoryData || !activeTopic) return null;
-    return activeCategoryData.topics.find(t => t.title === activeTopic);
-  }, [activeCategoryData, activeTopic]);
-
-  const activeTopicData = getActiveTopic();
+  const activeTopicData = useMemo(() => {
+    if (!activeCategoryData || activeTopicId == null) return null;
+    return (activeCategoryData.topics || []).find((t) => t.id === activeTopicId) || null;
+  }, [activeCategoryData, activeTopicId]);
 
   // ===== АВТОЗАПОЛНЕНИЕ ТЕХНОЛОГИЙ =====
   useEffect(() => {
@@ -460,14 +469,9 @@ function AdminPanel({ settings }) {
         name: newCategoryName.trim()
       });
       
-      setCategories(prev => prev.map(c => 
-        c.id === editingCategoryId ? { ...c, name: newCategoryName.trim() } : c
-      ));
-      
-      if (activeCategory === categories.find(c => c.id === editingCategoryId)?.name) {
-        setActiveCategory(newCategoryName.trim());
-      }
-      
+      invalidateTechnologiesCache();
+      await refreshCategories();
+
       setEditingCategoryId(null);
       setNewCategoryName('');
       alert('Технология обновлена!');
@@ -475,7 +479,7 @@ function AdminPanel({ settings }) {
       console.error('Ошибка обновления технологии:', error);
       alert('Ошибка обновления технологии');
     }
-  }, [categories, editingCategoryId, newCategoryName, activeCategory]);
+  }, [editingCategoryId, newCategoryName, refreshCategories]);
 
   const handleCancelEditCategory = useCallback(() => {
     setEditingCategoryId(null);
@@ -495,9 +499,11 @@ function AdminPanel({ settings }) {
     
     try {
       await del(`/api/study/technologies/${id}`);
-      setCategories(prev => prev.filter(c => c.id !== id));
-      if (activeCategory === category.name) {
-        setActiveCategory(null);
+      invalidateTechnologiesCache();
+      setCategories((prev) => prev.filter((c) => c.id !== id));
+      if (activeCategoryId === id) {
+        setActiveCategoryId(null);
+        setActiveTopicId(null);
       }
       closeContextMenu();
       alert('Технология удалена!');
@@ -505,7 +511,7 @@ function AdminPanel({ settings }) {
       console.error('Ошибка удаления технологии:', error);
       alert('Ошибка удаления технологии');
     }
-  }, [categories, activeCategory, closeContextMenu]);
+  }, [categories, activeCategoryId, closeContextMenu]);
 
   // ===== CRUD ДЛЯ ТЕМ =====
   const handleEditTopic = useCallback((topic) => {
@@ -515,8 +521,8 @@ function AdminPanel({ settings }) {
     setEditingId(topic.id);
     setEditingSubTopicId(null);
     setEditingCategoryId(null);
-    setActiveCategory(category.name);
-    setActiveTopic(topic.title);
+    setActiveCategoryId(category.id);
+    setActiveTopicId(topic.id);
     setNewTopic({
       title: topic.title || '',
       technologies: category.name,
@@ -544,37 +550,82 @@ function AdminPanel({ settings }) {
 
     if (!title) { alert('Введите название темы'); return; }
     if (!techInput) { alert('Укажите технологию'); return; }
-    if (!description || description === '<br>') { alert('Введите описание темы'); return; }
 
     const techList = techInput.split(',').map(s => s.trim()).filter(Boolean);
     const mainTech = techList[0];
+
+    let selectedTopicId = null;
 
     try {
       // ===== 1. НАХОДИМ ИЛИ СОЗДАЁМ ТЕХНОЛОГИЮ =====
       let existingCategory = categories.find(c => c.name.toLowerCase() === mainTech.toLowerCase());
 
       if (!existingCategory) {
+        invalidateTechnologiesCache();
         const allTechs = await fetchTechnologies();
         existingCategory = allTechs.find(c => c.name.toLowerCase() === mainTech.toLowerCase());
       }
+
+      const existingTopic = (existingCategory?.topics || []).find(
+        (t) => t.title.toLowerCase() === title.toLowerCase(),
+      );
+
+      // Добавление подтемы к уже существующей теме — без повторного описания темы
+      if (
+        editingId === null
+        && existingTopic
+        && showSubTopicField
+        && subTopicTitle.trim()
+      ) {
+        const duplicate = (existingTopic.subtopics || []).find(
+          (st) => st.title.toLowerCase() === subTopicTitle.trim().toLowerCase(),
+        );
+        if (duplicate) {
+          alert('⚠️ Такая подтема уже существует!');
+          return;
+        }
+
+        await post('/api/study/subtopics', {
+          title: subTopicTitle.trim(),
+          description: '',
+          topic_id: existingTopic.id,
+          sort_order: 0,
+        });
+
+        invalidateTechnologiesCache();
+        await refreshCategories();
+
+        setActiveCategoryId(existingCategory.id);
+        setActiveTopicId(existingTopic.id);
+        setNewTopic({ title: '', technologies: '', description: '' });
+        setShowSubTopicField(false);
+        setSubTopicTitle('');
+        setShowTechDropdown(false);
+        if (editorRef.current) editorRef.current.innerHTML = '';
+        alert('✅ Подтема добавлена!');
+        return;
+      }
+
+      if (!description || description === '<br>') { alert('Введите описание темы'); return; }
 
       if (!existingCategory) {
         const newCat = await post('/api/study/technologies', {
           name: mainTech,
           icon: 'fas fa-code'
         });
-        existingCategory = newCat;
-        setCategories(prev => [...prev, { ...newCat, topics: [] }]);
+        existingCategory = { ...newCat, topics: [] };
+        setCategories((prev) => {
+          if (prev.some((c) => c.id === newCat.id)) return prev;
+          return [...prev, existingCategory];
+        });
+      } else if (!categories.some((c) => c.id === existingCategory.id)) {
+        setCategories((prev) => {
+          if (prev.some((c) => c.id === existingCategory.id)) return prev;
+          return [...prev, { ...existingCategory, topics: existingCategory.topics || [] }];
+        });
       }
 
-      // ===== 2. ПРОВЕРЯЕМ, ЕСТЬ ЛИ УЖЕ ТАКАЯ ТЕМА В ЛОКАЛЬНОМ СОСТОЯНИИ =====
-      // ⚠️ ВАЖНО: existingCategory уже содержит topics из enrichedData
-      let existingTopic = null;
-      if (existingCategory.topics) {
-        existingTopic = existingCategory.topics.find(t => t.title.toLowerCase() === title.toLowerCase());
-      }
-
-      // ===== 3. ЕСЛИ РЕДАКТИРОВАНИЕ =====
+      // ===== 2. ЕСЛИ РЕДАКТИРОВАНИЕ =====
       if (editingId !== null) {
         await put(`/api/study/topics/${editingId}`, {
           title: title,
@@ -583,18 +634,10 @@ function AdminPanel({ settings }) {
           sort_order: 0
         });
 
-        setCategories(prev => prev.map(c => {
-          if (c.id === existingCategory.id) {
-            return {
-              ...c,
-              topics: c.topics.map(t =>
-                t.id === editingId ? { ...t, title, description } : t
-              )
-            };
-          }
-          return c;
-        }));
+        invalidateTechnologiesCache();
+        await refreshCategories();
 
+        selectedTopicId = editingId;
         setEditingId(null);
         alert('✅ Тема обновлена!');
         
@@ -607,49 +650,24 @@ function AdminPanel({ settings }) {
           sort_order: 0
         });
 
-        // Добавляем тему в локальное состояние
-        setCategories(prev => prev.map(c => {
-          if (c.id === existingCategory.id) {
-            return {
-              ...c,
-              topics: [...(c.topics || []), { ...newTopicData, subtopics: [] }]
-            };
-          }
-          return c;
-        }));
-
-        // Если есть подтема — добавляем к новой теме
         if (showSubTopicField && subTopicTitle.trim()) {
-          const newSubTopicData = await post('/api/study/subtopics', {
+          await post('/api/study/subtopics', {
             title: subTopicTitle.trim(),
             description: '',
             topic_id: newTopicData.id,
             sort_order: 0
           });
-
-          setCategories(prev => prev.map(c => {
-            if (c.id === existingCategory.id) {
-              return {
-                ...c,
-                topics: c.topics.map(t => {
-                  if (t.id === newTopicData.id) {
-                    return {
-                      ...t,
-                      subtopics: [newSubTopicData]
-                    };
-                  }
-                  return t;
-                })
-              };
-            }
-            return c;
-          }));
         }
+
+        selectedTopicId = newTopicData.id;
+        invalidateTechnologiesCache();
+        await refreshCategories();
 
         alert('✅ Тема создана!');
 
       // ===== 5. ЕСЛИ ТЕМА УЖЕ СУЩЕСТВУЕТ — ДОБАВЛЯЕМ ПОДТЕМУ =====
       } else {
+        selectedTopicId = existingTopic.id;
         // Проверяем, есть ли уже такая подтема
         const existingSubTopic = existingTopic.subtopics?.find(
           st => st.title.toLowerCase() === subTopicTitle.trim().toLowerCase()
@@ -659,31 +677,15 @@ function AdminPanel({ settings }) {
           if (existingSubTopic) {
             alert('⚠️ Такая подтема уже существует!');
           } else {
-            const newSubTopicData = await post('/api/study/subtopics', {
+            await post('/api/study/subtopics', {
               title: subTopicTitle.trim(),
               description: '',
               topic_id: existingTopic.id,
               sort_order: 0
             });
 
-            // Обновляем локальное состояние
-            setCategories(prev => prev.map(c => {
-              if (c.id === existingCategory.id) {
-                return {
-                  ...c,
-                  topics: c.topics.map(t => {
-                    if (t.id === existingTopic.id) {
-                      return {
-                        ...t,
-                        subtopics: [...(t.subtopics || []), newSubTopicData]
-                      };
-                    }
-                    return t;
-                  })
-                };
-              }
-              return c;
-            }));
+            invalidateTechnologiesCache();
+            await refreshCategories();
 
             alert('✅ Подтема добавлена!');
           }
@@ -692,8 +694,10 @@ function AdminPanel({ settings }) {
         }
       }
 
-      setActiveCategory(existingCategory.name);
-      setActiveTopic(title);
+      setActiveCategoryId(existingCategory.id);
+      if (selectedTopicId) {
+        setActiveTopicId(selectedTopicId);
+      }
       setNewTopic({ title: '', technologies: '', description: '' });
       setShowSubTopicField(false);
       setSubTopicTitle('');
@@ -704,14 +708,15 @@ function AdminPanel({ settings }) {
       console.error('Ошибка сохранения темы:', error);
       alert('❌ Ошибка сохранения темы: ' + (error.message || 'Неизвестная ошибка'));
     }
-  }, [categories, newTopic, editingId, showSubTopicField, subTopicTitle, editorRef]);
+  }, [categories, newTopic, editingId, showSubTopicField, subTopicTitle, editorRef, refreshCategories]);
 
   const selectTech = useCallback((techName) => {
     setNewTopic(prev => ({ ...prev, technologies: techName }));
     setShowTechDropdown(false);
-    const category = categories.find(c => c.name === techName);
+    const category = categories.find((c) => c.name === techName);
     if (category) {
-      setActiveCategory(category.name);
+      setActiveCategoryId(category.id);
+      setActiveTopicId(null);
     }
   }, [categories]);
 
@@ -726,25 +731,54 @@ function AdminPanel({ settings }) {
     
     try {
       await del(`/api/study/topics/${id}`);
-      setCategories(prev => prev.map(c => {
-        if (c.name !== activeCategory) return c;
-        return { ...c, topics: c.topics.filter(t => t.id !== id) };
-      }));
-      if (activeTopic) setActiveTopic(null);
+      invalidateTechnologiesCache();
+      setCategories((prev) =>
+        prev.map((c) => ({
+          ...c,
+          topics: (c.topics || []).filter((t) => t.id !== id),
+        })),
+      );
+      if (activeTopicId === id) setActiveTopicId(null);
       closeContextMenu();
       alert('Тема удалена!');
     } catch (error) {
       console.error('Ошибка удаления темы:', error);
       alert('Ошибка удаления темы');
     }
-  }, [activeCategory, activeTopic, closeContextMenu]);
+  }, [activeTopicId, closeContextMenu]);
 
-  const toggleTopic = useCallback((title) => {
-    setActiveTopic(prev => prev === title ? null : title);
+  const selectTopic = useCallback((categoryId, topicId) => {
+    setActiveCategoryId(categoryId);
+    setActiveTopicId(topicId);
+    setAddingSubTopicMode(false);
+
+    const category = categories.find((c) => c.id === categoryId);
+    const topic = category?.topics?.find((t) => t.id === topicId);
+    if (category && topic && !editingId && !editingSubTopicId) {
+      setNewTopic((prev) => ({
+        ...prev,
+        title: topic.title,
+        technologies: category.name,
+      }));
+    }
+  }, [categories, editingId, editingSubTopicId]);
+
+  const toggleTopic = useCallback((topicId) => {
+    setActiveTopicId((prev) => (prev === topicId ? null : topicId));
   }, []);
 
   // ===== CRUD ДЛЯ ПОДТЕМ =====
   const handleEditSubTopic = useCallback((subtopic) => {
+    const parentCategory = categories.find((c) =>
+      (c.topics || []).some((t) => (t.subtopics || []).some((st) => st.id === subtopic.id)),
+    );
+    const parentTopic = parentCategory?.topics?.find((t) =>
+      (t.subtopics || []).some((st) => st.id === subtopic.id),
+    );
+
+    if (parentCategory) setActiveCategoryId(parentCategory.id);
+    if (parentTopic) setActiveTopicId(parentTopic.id);
+
     setEditingSubTopicId(subtopic.id);
     setEditingId(null);
     setEditingCategoryId(null);
@@ -759,7 +793,7 @@ function AdminPanel({ settings }) {
     }, 100);
     closeContextMenu();
     closeModal();
-  }, [closeModal, closeContextMenu]);
+  }, [categories, closeModal, closeContextMenu]);
 
   const handleAddSubTopic = useCallback(async (e) => {
     e.preventDefault();
@@ -790,53 +824,33 @@ function AdminPanel({ settings }) {
           topic_id: activeTopicData.id,  // ✅ ДОБАВИТЬ!
           sort_order: 0
         });
-        setCategories(prev => prev.map(c => {
-          if (c.name !== activeCategory) return c;
-          return {
-            ...c,
-            topics: c.topics.map(t => {
-              if (t.title !== activeTopic) return t;
-              return {
-                ...t,
-                subtopics: t.subtopics.map(st => 
-                  st.id === editingSubTopicId ? { ...st, title, description } : st
-                )
-              };
-            })
-          };
-        }));
+        invalidateTechnologiesCache();
+        await refreshCategories();
       } else {
-        // Создание
-        const newSubTopicData = await post('/api/study/subtopics', {
+        await post('/api/study/subtopics', {
           title: title,
           description: description,
           topic_id: activeTopicData.id,
           sort_order: 0
         });
-        setCategories(prev => prev.map(c => {
-          if (c.name !== activeCategory) return c;
-          return {
-            ...c,
-            topics: c.topics.map(t => {
-              if (t.title !== activeTopic) return t;
-              return {
-                ...t,
-                subtopics: [...(t.subtopics || []), newSubTopicData]
-              };
-            })
-          };
-        }));
+        invalidateTechnologiesCache();
+        await refreshCategories();
       }
 
       setEditingSubTopicId(null);
+      setAddingSubTopicMode(false);
       setNewSubTopic({ title: '', description: '' });
       if (editorRef.current) editorRef.current.innerHTML = '';
+      if (activeTopicData) {
+        setActiveCategoryId(activeCategoryId);
+        setActiveTopicId(activeTopicData.id);
+      }
       alert('Подтема сохранена!');
     } catch (error) {
       console.error('Ошибка сохранения подтемы:', error);
       alert('Ошибка сохранения подтемы');
     }
-  }, [activeCategory, activeTopic, activeTopicData, editingSubTopicId, newSubTopic]);
+  }, [activeTopicData, activeCategoryId, editingSubTopicId, newSubTopic, refreshCategories]);
 
   const handleDeleteSubTopic = useCallback(async (id) => {
     const currentUser = JSON.parse(localStorage.getItem('currentUser'));
@@ -849,23 +863,23 @@ function AdminPanel({ settings }) {
     
     try {
       await del(`/api/study/subtopics/${id}`);
-      setCategories(prev => prev.map(c => {
-        if (c.name !== activeCategory) return c;
-        return {
+      invalidateTechnologiesCache();
+      setCategories((prev) =>
+        prev.map((c) => ({
           ...c,
-          topics: c.topics.map(t => {
-            if (t.title !== activeTopic) return t;
-            return { ...t, subtopics: t.subtopics.filter(st => st.id !== id) };
-          })
-        };
-      }));
+          topics: (c.topics || []).map((t) => ({
+            ...t,
+            subtopics: (t.subtopics || []).filter((st) => st.id !== id),
+          })),
+        })),
+      );
       closeContextMenu();
       alert('Подтема удалена!');
     } catch (error) {
       console.error('Ошибка удаления подтемы:', error);
       alert('Ошибка удаления подтемы');
     }
-  }, [activeCategory, activeTopic, closeContextMenu]);
+  }, [closeContextMenu]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingId(null);
@@ -876,6 +890,7 @@ function AdminPanel({ settings }) {
     setNewSubTopic({ title: '', description: '' });
     setShowSubTopicField(false);
     setSubTopicTitle('');
+    setAddingSubTopicMode(false);
     setShowTechDropdown(false);
     if (editorRef.current) editorRef.current.innerHTML = '';
     savedRangeRef.current = null;
@@ -883,8 +898,15 @@ function AdminPanel({ settings }) {
     window.getSelection().removeAllRanges();
   }, []);
 
-  const toggleCategory = useCallback((name) => {
-    setActiveCategory(prev => prev === name ? null : name);
+  const toggleCategory = useCallback((categoryId) => {
+    setActiveCategoryId((prev) => {
+      if (prev === categoryId) {
+        setActiveTopicId(null);
+        return null;
+      }
+      setActiveTopicId(null);
+      return categoryId;
+    });
   }, []);
 
   // ===== ОБРАБОТЧИКИ ДЛЯ КОНТЕКСТНОГО МЕНЮ =====
@@ -963,8 +985,17 @@ function AdminPanel({ settings }) {
     const search = searchTerm.trim().toLowerCase();
     if (!search) return categories;
     return categories
-      .map(c => ({ ...c, topics: c.topics.filter(t => t.title.toLowerCase().includes(search) || c.name.toLowerCase().includes(search)) }))
-      .filter(c => c.topics.length > 0);
+      .map((cat) => {
+        const topics = (cat.topics || []).filter((topic) => {
+          const topicMatch = topic.title.toLowerCase().includes(search);
+          const subtopicMatch = (topic.subtopics || []).some((st) =>
+            st.title.toLowerCase().includes(search),
+          );
+          return topicMatch || subtopicMatch || cat.name.toLowerCase().includes(search);
+        });
+        return { ...cat, topics };
+      })
+      .filter((cat) => cat.topics.length > 0 || cat.name.toLowerCase().includes(search));
   }, [categories, searchTerm]);
 
   const totalTopics = useMemo(() => categories.reduce((acc, c) => acc + (c.topics?.length || 0), 0), [categories]);
@@ -1069,11 +1100,12 @@ function AdminPanel({ settings }) {
                   </div>
                 </form>
               </div>
-            ) : editingSubTopicId !== null ? (
+            ) : (editingSubTopicId !== null || addingSubTopicMode) && activeTopicData ? (
               <div className="admin-form-top">
                 <h2>
-                  <i className="fas fa-pen"></i> Редактировать подтему
-                  {activeTopic && <span className="form-category-badge">в {activeTopic}</span>}
+                  <i className={`fas ${editingSubTopicId !== null ? 'fa-pen' : 'fa-plus-circle'}`}></i>
+                  {editingSubTopicId !== null ? 'Редактировать подтему' : 'Добавить подтему'}
+                  <span className="form-category-badge">в {activeTopicData.title}</span>
                 </h2>
                 <form onSubmit={handleAddSubTopic}>
                   <div className="form-group">
@@ -1106,10 +1138,12 @@ function AdminPanel({ settings }) {
                   </div>
                   <div className="form-buttons">
                     <button type="submit" className="btn-submit">
-                      <i className="fas fa-save"></i> Сохранить подтему
+                      <i className={`fas ${editingSubTopicId !== null ? 'fa-save' : 'fa-plus'}`}></i>
+                      {editingSubTopicId !== null ? 'Сохранить подтему' : 'Добавить подтему'}
                     </button>
                     <button type="button" className="btn-cancel" onClick={() => {
                       setEditingSubTopicId(null);
+                      setAddingSubTopicMode(false);
                       setNewSubTopic({ title: '', description: '' });
                       if (editorRef.current) editorRef.current.innerHTML = '';
                     }}>
@@ -1285,60 +1319,78 @@ function AdminPanel({ settings }) {
                 <i className="fas fa-book"></i> Каталог технологий
               </div>
 
+              {activeTopicData && !addingSubTopicMode && editingSubTopicId === null && (
+                <button
+                  type="button"
+                  className="btn-submit"
+                  style={{ width: '100%', marginBottom: '12px' }}
+                  onClick={() => {
+                    setAddingSubTopicMode(true);
+                    setEditingSubTopicId(null);
+                    setNewSubTopic({ title: '', description: '' });
+                    if (editorRef.current) editorRef.current.innerHTML = '';
+                  }}
+                >
+                  <i className="fas fa-plus"></i> Добавить подтему в «{activeTopicData.title}»
+                </button>
+              )}
+
               {filteredCategories.map(category => (
                 <div key={category.id} className="category-item">
                   <div
-                    className={`category-header ${activeCategory === category.name ? 'active' : ''}`}
-                    onClick={() => toggleCategory(category.name)}
+                    className={`category-header ${activeCategoryId === category.id ? 'active' : ''}`}
+                    onClick={() => toggleCategory(category.id)}
                     onContextMenu={(e) => handleItemContextMenu(e, 'category', category)}
                     role="button"
                     tabIndex={0}
                     onKeyDown={e => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        toggleCategory(category.name);
+                        toggleCategory(category.id);
                       }
                     }}
                   >
                     <i className={`${category.icon} category-icon`}></i>
                     <span className="category-name">{category.name}</span>
-                    <span className="topic-count">{category.topics.length} тем</span>
-                    <i className={`fas fa-chevron-${activeCategory === category.name ? 'down' : 'right'} category-arrow`}></i>
+                    <span className="topic-count">{(category.topics || []).length} тем</span>
+                    <i className={`fas fa-chevron-${activeCategoryId === category.id ? 'down' : 'right'} category-arrow`}></i>
                   </div>
-                  {activeCategory === category.name && (
+                  {activeCategoryId === category.id && (
                     <div className="topics-list">
-                      {category.topics.map(topic => {
+                      {(category.topics || []).map(topic => {
                         const hasSubtopics = topic.subtopics && topic.subtopics.length > 0;
+                        const isExpanded = activeTopicId === topic.id;
                         return (
                           <div key={topic.id} className="topic-item-catalog-wrapper">
                             <div
-                              className={`topic-header ${activeTopic === topic.title ? 'active' : ''}`}
-                              onClick={() => {
-                                if (hasSubtopics) {
-                                  toggleTopic(topic.title);
-                                }
-                              }}
+                              className={`topic-header ${activeTopicId === topic.id ? 'active' : ''}`}
+                              onClick={() => selectTopic(category.id, topic.id)}
                               onContextMenu={(e) => handleItemContextMenu(e, 'topic', topic)}
-                              style={{ 
-                                cursor: hasSubtopics ? 'pointer' : 'default'
-                              }}
+                              style={{ cursor: 'pointer' }}
                             >
                               <i className="fas fa-circle topic-dot"></i>
                               <span className="topic-title-catalog">{topic.title}</span>
                               {hasSubtopics && (
                                 <>
                                   <span className="topic-count">{topic.subtopics.length} подтем</span>
-                                  <i className={`fas fa-chevron-${activeTopic === topic.title ? 'down' : 'right'} topic-arrow`}></i>
+                                  <i
+                                    className={`fas fa-chevron-${isExpanded ? 'down' : 'right'} topic-arrow`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleTopic(topic.id);
+                                    }}
+                                  ></i>
                                 </>
                               )}
                             </div>
 
-                            {activeTopic === topic.title && hasSubtopics && (
+                            {isExpanded && hasSubtopics && (
                               <div className="subtopics-list">
                                 {topic.subtopics.map(subtopic => (
                                   <div 
                                     key={subtopic.id} 
                                     className="subtopic-item"
+                                    onClick={() => selectTopic(category.id, topic.id)}
                                     onContextMenu={(e) => handleItemContextMenu(e, 'subtopic', subtopic)}
                                   >
                                     <i className="fas fa-circle subtopic-dot"></i>
